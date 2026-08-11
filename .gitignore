@@ -1,0 +1,27 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+## Node
+node_modules/
+dist/
+npm-debug.log*
+
+## Ambiente / segredos
+.env
+.env.*
+!.env.example
+
+## SQL Server / Docker
+*.mdf
+*.ldf
+*.bak
+
+## Editores / SO
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
