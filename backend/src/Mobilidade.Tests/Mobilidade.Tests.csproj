@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Mobilidade.Domain\Mobilidade.Domain.csproj" />
     <ProjectReference Include="..\Mobilidade.Application\Mobilidade.Application.csproj" />
+    <ProjectReference Include="..\Mobilidade.IncidentesConsole\Mobilidade.IncidentesConsole.csproj" />
   </ItemGroup>
 
 </Project>
