@@ -1,6 +1,7 @@
+using Mobilidade.Application.Repositorio;
 using Mobilidade.Domain.Modelos;
 
-namespace Mobilidade.Application.Repositorio;
+namespace Mobilidade.Infrastructure.Repositorio;
 
 public class RepositorioIncidentesEmMemoria : IIncidenteRepository
 {
