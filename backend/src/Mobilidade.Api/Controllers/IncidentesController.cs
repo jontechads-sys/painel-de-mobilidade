@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.VisualBasic;
 using Mobilidade.Api.Dtos;
 using Mobilidade.Application.Repositorio;
 using Mobilidade.Domain.Modelos;
@@ -21,5 +22,13 @@ public class IncidentesController : ControllerBase
         request.Tipo,request.Severidade,request.Bairro,request.Descricao);
         var incidenteCriado = _repositorio.Criar(incidente);
         return Ok(incidenteCriado);
+    }
+    [HttpGet("{id}")]
+    public IActionResult BuscarPorId(int id)
+    {
+        var incidente = _repositorio.BuscarPorId(id);
+        if (incidente is null)
+         return NotFound();
+        return Ok(incidente);
     }
 }
