@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Mobilidade.Domain\Mobilidade.Domain.csproj" />
     <ProjectReference Include="..\Mobilidade.Application\Mobilidade.Application.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
   </ItemGroup>
 
   <PropertyGroup>
