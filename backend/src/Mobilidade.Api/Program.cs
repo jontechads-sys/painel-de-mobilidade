@@ -1,41 +1,42 @@
+using Mobilidade.Application.Importacao;
+using Mobilidade.Application.Repositorio;
+using Mobilidade.Infrastructure.Importacao;
+using Mobilidade.Infrastructure.Repositorio;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.AddControllers();
+builder.Services.AddProblemDetails();
+
+builder.Services.AddSingleton<IIncidenteRepository, RepositorioIncidentesEmMemoria>();
+builder.Services.AddTransient<IIncidenteImportador, ImportadorIncidentesCsv>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
+app.UseExceptionHandler();
 app.UseHttpsRedirection();
+app.MapControllers();
 
-var summaries = new[]
+app.MapPost("/api/incidentes/importar", async (
+    IIncidenteImportador importador,
+    IIncidenteRepository repositorio,
+    CancellationToken ct) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    var resultado = await importador.ImportarAsync(ct);
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
+    foreach (var incidente in resultado.Incidentes)
+    {
+        repositorio.Criar(incidente);
+    }
+
+    return Results.Ok(new { importados = resultado.Incidentes.Count, avisos = resultado.Avisos });
 })
-.WithName("GetWeatherForecast");
+.WithName("ImportarIncidentesCsv");
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

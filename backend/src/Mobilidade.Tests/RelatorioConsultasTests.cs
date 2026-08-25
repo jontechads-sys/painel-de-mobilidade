@@ -1,5 +1,5 @@
-using Mobilidade.IncidentesConsole.Consultas;
-using Mobilidade.IncidentesConsole.Modelos;
+using Mobilidade.Domain.Modelos;
+using Mobilidade.Application.Consultas;
 
 namespace Mobilidade.Tests;
 

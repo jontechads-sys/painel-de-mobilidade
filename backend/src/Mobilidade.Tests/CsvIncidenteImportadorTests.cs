@@ -1,6 +1,5 @@
-using Mobilidade.IncidentesConsole.Importacao;
-using Mobilidade.IncidentesConsole.Modelos;
-
+using Mobilidade.Application.Importacao;
+using Mobilidade.Infrastructure.Importacao;
 namespace Mobilidade.Tests;
 
 public class CsvIncidenteImportadorTests
@@ -11,7 +10,8 @@ public class CsvIncidenteImportadorTests
         await File.WriteAllTextAsync(caminho, conteudoCsv);
         try
         {
-            return await CsvIncidenteImportador.ImportarAsync(caminho);
+            var importador = new CsvIncidenteImportador(caminho);
+            return await importador.ImportarAsync();
         }
         finally
         {
