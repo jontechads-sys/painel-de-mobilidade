@@ -1,0 +1,30 @@
+# Build/artefatos .NET — reconstruídos dentro do container, não precisam viajar
+**/bin/
+**/obj/
+**/out/
+**/.vs/
+
+# Git e metadados do repo
+.git/
+.gitignore
+.gitattributes
+
+# Segredos e ambiente local — nunca entram na imagem
+.env
+.env.*
+!.env.example
+
+# Editores / SO
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Node (frontend, quando existir)
+node_modules/
+dist/
+npm-debug.log*
+
+# Docs — não afetam o build da API
+README.md
+*.md
