@@ -2,6 +2,7 @@ using Mobilidade.Application.Importacao;
 using Mobilidade.Application.Repositorio;
 using Mobilidade.Infrastructure.Importacao;
 using Mobilidade.Infrastructure.Repositorio;
+using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +23,23 @@ if (app.Environment.IsDevelopment())
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.MapControllers();
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+app.MapGet("/health", async () =>
+{
+    try
+    {
+        using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        return Results.Ok("OK");
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Falha ao tentar se conectar no banco de dados");
+        return Results.StatusCode(503);
+    }
+});
 
 app.MapPost("/api/incidentes/importar", async (
     IIncidenteImportador importador,
