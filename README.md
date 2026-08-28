@@ -2,9 +2,10 @@
 
 Monorepo do Painel de Mobilidade. Estrutura de pastas, solution .NET,
 infraestrutura local do banco e CRUD de incidentes (em memória, sem
-persistência real ainda). A formalização das camadas de domínio vem nas
-semanas 5–6; a integração com o banco (SQL Server já sobe via Docker) ainda
-não existe.
+persistência real ainda). A persistência real via EF Core vem na Semana 4;
+por enquanto a API já verifica a conexão com o banco através de um endpoint
+de health (`GET /health`). A formalização das camadas de domínio vem nas
+semanas 5–6.
 
 ## Estrutura
 
@@ -70,23 +71,7 @@ leitura do arquivo inteiro.
 - [.NET SDK 10+](https://dotnet.microsoft.com/download)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) com Docker Compose
 
-## Banco de dados (SQL Server)
-
-```bash
-docker compose up -d
-```
-
-Sobe só o SQL Server, em `localhost:1433`, com usuário `sa` e senha definida em
-`MSSQL_SA_PASSWORD` (veja `.env.example`; padrão `Mobilidade#2026` se nenhuma
-`.env` for criada). Os dados ficam no volume nomeado `sqlserver_data` e
-sobrevivem a `docker compose down` — só somem com `docker compose down -v`.
-
-```bash
-docker compose down     # para os containers, mantém os dados
-docker compose down -v  # para os containers E apaga o volume (dados perdidos)
-```
-
-## Backend
+## Backend (rodando local, sem Docker)
 
 ```bash
 cd backend
@@ -95,17 +80,86 @@ dotnet build
 dotnet test
 ```
 
-## Docker (API)
+## Subindo tudo via Docker Compose (API + SQL Server)
 
-`backend/src/Mobilidade.Api/Dockerfile` faz build multi-stage (SDK para
-compilar/publicar, runtime `aspnet` só com o resultado do publish) e roda
-como o usuário não-root `app`. Precisa ser buildado a partir da **raiz do
-repositório**, porque o contexto precisa enxergar `backend/src/*` inteiro
-(referências entre projetos):
+`docker compose up` sobe os dois serviços juntos, sem nenhum passo manual: o
+SQL Server sobe primeiro, e a API só inicia depois que o banco responde como
+`healthy` (`depends_on: condition: service_healthy` — ver seção
+[Orquestração](#orquestração-depends_on-rede-e-persistência) abaixo).
+
+### Subir
+
+O comando usa a flag `-d` para devolver o terminal imediatamente, permitindo
+rodar `docker compose ps` logo em seguida (sem `-d`, o terminal fica preso
+mostrando o log ao vivo, e fechar essa janela derruba os containers).
 
 ```bash
-docker build -f backend/src/Mobilidade.Api/Dockerfile -t mobilidade-api .
-docker run -p 8080:8080 mobilidade-api
+cp .env.example .env    # uma vez só, se ainda não tiver .env
+docker compose up -d    # sobe API + SQL Server em background
+docker compose ps       # confirma que os dois estão de pé (sqlserver deve aparecer "healthy")
+```
+
+Se você alterou o código da API desde a última vez que a imagem foi
+construída, use `docker compose up -d --build` — a imagem Docker não sabe
+sozinha que o código-fonte mudou, então sem `--build` ela reaproveita a
+imagem antiga já compilada.
+
+### Derrubar
+
+```bash
+docker compose down     # derruba os containers, mantém os dados no volume
+docker compose down -v  # derruba os containers E apaga o volume (dados perdidos)
+```
+
+## Orquestração: depends_on, rede e persistência
+
+A API se conecta ao SQL Server pelo **nome do serviço** definido no
+`docker-compose.yml` (`sqlserver`), não por `localhost` — é assim que a rede
+interna criada pelo Compose resolve o hostname entre os containers. Isso
+está refletido na connection string do serviço `api`
+(`Server=sqlserver,1433;...`).
+
+**Volume nomeado** (`sqlserver_data`) garante que os dados do SQL Server
+sobrevivem a `docker compose down` — só são apagados com `docker compose
+down -v`.
+
+**Senha e connection string** vêm da variável de ambiente
+`MSSQL_SA_PASSWORD` (definida no `.env`, nunca commitada — veja
+`.env.example`). A mesma variável é reutilizada tanto pelo `sqlserver`
+(que cria o login `sa` com essa senha ao subir) quanto pela `api` (que
+autentica como `sa` usando essa mesma senha) — as duas pontas da
+autenticação precisam concordar sobre qual é a senha, senão a conexão da
+API é rejeitada pelo banco.
+
+### Evidência do `depends_on` funcionando
+
+```
+λ docker compose ps
+NAME                      IMAGE                                        COMMAND                  SERVICE     CREATED         STATUS                    PORTS
+mobilidade-sqlserver      mcr.microsoft.com/mssql/server:2022-latest   "/opt/mssql/bin/laun…"   sqlserver   2 weeks ago     Up 11 seconds (healthy)   0.0.0.0:1433->1433/tcp, [::]:1433->1433/tcp
+painel-mobilidade-api-1   painel-mobilidade-api                        "dotnet Mobilidade.A…"   api         3 minutes ago   Up 6 seconds              0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+```
+
+O `sqlserver` está de pé há 11 segundos e a `api` há apenas 6 — a diferença
+prova que a API esperou o banco ficar `healthy` antes de subir. Sem o
+`depends_on: condition: service_healthy`, os dois teriam iniciado
+praticamente juntos, sem essa defasagem.
+
+### Endpoint de health
+
+Implementado em `GET /health`, para provar que a API enxerga o banco via
+`SqlConnection` cru, sem EF Core.
+
+O endpoint tenta abrir a conexão com o banco (`OpenAsync()`) usando a mesma
+connection string configurada via variável de ambiente. Se a conexão abre
+com sucesso, retorna `200 OK` com o corpo `"OK"`. Se falhar, retorna
+`503 Service Unavailable` — sem expor o detalhe da exceção na resposta, para
+não vazar informação de infraestrutura; a mensagem de erro real
+("Falha ao tentar se conectar no banco de dados") é gravada apenas no log do
+servidor, acessível via `docker compose logs api`.
+
+```bash
+curl http://localhost:8080/health
 ```
 
 ## Minimal API vs Controller
@@ -170,11 +224,17 @@ O controller recebe `IIncidenteRepository` no construtor — uma abstração —
 ## Containerização (Docker)
 
 Build multi-stage: a imagem final não carrega o SDK, só o runtime necessário
-para executar a API já compilada.
+para executar a API já compilada. Precisa ser buildado a partir da **raiz do
+repositório**, porque o contexto precisa enxergar `backend/src/*` inteiro
+(referências entre projetos):
 
 ```bash
 docker build -f backend/src/Mobilidade.Api/Dockerfile -t mobilidade-api .
+docker run -p 8080:8080 mobilidade-api
 ```
+
+Roda como o usuário não-root `app` (já vem pronto nas imagens oficiais do
+.NET, não foi criado manualmente).
 
 ### O que cada estágio produz
 
@@ -198,4 +258,10 @@ docker images mobilidade-api-build-stage   # build com --target build, só para 
 | Final (runtime) | `aspnet:10.0` | 341MB | 96.2MB |
 | Build | `sdk:10.0` | 1.26GB | 331MB |
 
-aspnet não precisa de compilador nem de ferramenta de pacotes (NuGet), pois só precisa trazer o resultado que o estágio de build entrega. Por isso a diferença de tamanho entre as imagens: o container que já está rodando em produção está atualizado conforme o código publicado, e não tem o que compilar. Para alterar algo no código, é necessário buildar uma imagem nova (com o compilador rodando de novo no estágio de build) e então atualizar o container de produção a partir dela.
+aspnet não precisa de compilador nem de ferramenta de pacotes (NuGet), pois
+só precisa trazer o resultado que o estágio de build entrega. Por isso a
+diferença de tamanho entre as imagens: o container que já está rodando em
+produção está atualizado conforme o código publicado, e não tem o que
+compilar. Para alterar algo no código, é necessário buildar uma imagem nova
+(com o compilador rodando de novo no estágio de build) e então atualizar o
+container de produção a partir dela.
