@@ -1,5 +1,4 @@
-# Infraestrutura local da Semana 1: apenas o SQL Server.
-# O backend ainda não fala com o banco — isso existe só para o esqueleto nascer correto.
+# Infraestrutura: SQL Server + API (Semana 3, Parte 2).
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -19,7 +18,20 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
+    
+    
+  api:
+    build:
+     context: .
+     dockerfile: backend/src/Mobilidade.Api/Dockerfile
+    ports:
+     - "8080:8080"
+    environment:
+     ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=master;User Id=sa;TrustServerCertificate=True;Password=${MSSQL_SA_PASSWORD}"
+    depends_on:
+     sqlserver:
+      condition: service_healthy
 
 # Volume nomeado: sobrevive a `docker compose down` (só some com `down -v`).
 volumes:
-  sqlserver_data:
+  sqlserver_data: 

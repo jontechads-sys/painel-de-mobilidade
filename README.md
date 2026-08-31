@@ -1,8 +1,11 @@
 # painel-mobilidade
 
-Monorepo do Painel de Mobilidade. Este é o esqueleto da Semana 1: estrutura de
-pastas, solution .NET e infraestrutura local do banco. Ainda não há regra de
-negócio nem integração real com o banco — isso vem nas semanas seguintes.
+Monorepo do Painel de Mobilidade. Estrutura de pastas, solution .NET,
+infraestrutura local do banco e CRUD de incidentes (em memória, sem
+persistência real ainda). A persistência real via EF Core vem na Semana 4;
+por enquanto a API já verifica a conexão com o banco através de um endpoint
+de health (`GET /health`). A formalização das camadas de domínio vem nas
+semanas 5–6.
 
 ## Estrutura
 
@@ -10,16 +13,17 @@ negócio nem integração real com o banco — isso vem nas semanas seguintes.
 painel-mobilidade/
 ├── docker-compose.yml
 ├── README.md
+├── .env.example
+├── .dockerignore
 ├── .gitignore
 └── backend/
     ├── Mobilidade.sln
     └── src/
-        ├── Mobilidade.Api/
-        ├── Mobilidade.Domain/
-        ├── Mobilidade.Application/
-        ├── Mobilidade.Infrastructure/
-        ├── Mobilidade.Tests/
-        └── Mobilidade.IncidentesConsole/
+        ├── Mobilidade.Api/            # Controllers, DTOs, Program.cs, Dockerfile
+        ├── Mobilidade.Domain/         # Modelos (Incidente, enums)
+        ├── Mobilidade.Application/    # Interfaces (repositório, importador) e consultas
+        ├── Mobilidade.Infrastructure/ # Implementações (repositório em memória, importador CSV)
+        └── Mobilidade.Tests/
 ```
 
 Camadas (referências de projeto já ligadas, formalização vem nas semanas 5–6):
@@ -28,33 +32,20 @@ Camadas (referências de projeto já ligadas, formalização vem nas semanas 5�
 - **Application**: depende de Domain.
 - **Infrastructure**: depende de Domain e Application.
 - **Api**: depende de Domain, Application e Infrastructure.
-- **Tests**: depende de Domain, Application e IncidentesConsole.
-- **IncidentesConsole**: projeto console **temporário**, autocontido (não referencia Domain/Application/Infrastructure). Ver justificativa abaixo.
+- **Tests**: depende de Domain, Application e Infrastructure.
 
-## Console de incidentes (Semana 1, Parte 2)
+## Importação de incidentes via CSV
 
-`backend/src/Mobilidade.IncidentesConsole` importa um CSV fictício de
-incidentes de trânsito e responde consultas via LINQ. Roda assim:
+A importação roda como endpoint (`POST /api/incidentes/importar`, minimal
+API em `Program.cs`), acionando `ImportadorIncidentesCsv`
+(`Mobilidade.Infrastructure/Importacao/ImportadorIncidentesCsv.cs`), que lê o
+caminho do arquivo da configuração (`ImportacaoCsv:Caminho`) e devolve os
+incidentes importados via `IIncidenteRepository`. Ver seção
+[Minimal API vs Controller](#minimal-api-vs-controller) para o porquê dessa
+escolha.
 
-```bash
-cd backend/src/Mobilidade.IncidentesConsole
-dotnet run                        # usa dados/incidentes.csv (copiado pro output)
-dotnet run -- caminho/outro.csv   # ou aponta pra outro arquivo
-```
-
-**Por que um projeto console separado, e não dentro de `Mobilidade.Api`:**
-`Mobilidade.Api` é um host web (`Program.cs` sobe Kestrel) — não tem onde
-pendurar um fluxo "lê arquivo, imprime relatório, encerra" sem forçar um
-encaixe artificial (um controller/endpoint só pra rodar uma vez, ou dois
-entry points concorrendo no mesmo processo). O enunciado já chama esse
-console de temporário, e a separação em camadas de domínio só é formalizada
-nas semanas 5–6 — então também evitei acoplar o modelo de `Incidente` ao
-`Mobilidade.Domain` agora: forçar essa forma cedo é comprometer um formato
-que ainda não foi pensado para durar. O projeto é autocontido; só o
-`Mobilidade.Tests` referencia ele, para testar o parser e as consultas.
-
-**Decisões de `Nullable`** (todas em `Modelos/Incidente.cs` e
-`Importacao/CsvIncidenteImportador.cs`):
+**Decisões de `Nullable`** (`Mobilidade.Domain/Modelos/Incidente.cs` e
+`Mobilidade.Infrastructure/Importacao/ImportadorIncidentesCsv.cs`):
 
 | Campo | Ausente no CSV vira | Por quê |
 |---|---|---|
@@ -63,45 +54,112 @@ que ainda não foi pensado para durar. O projeto é autocontido; só o
 | `Bairro` (`string`, não nulo) | `"(nao informado)"` | é problema de qualidade do dado, não ausência válida — vira categoria própria no `GroupBy` em vez de exigir tratamento de chave nula |
 | `Descricao` (`string?`) | `null` | texto livre genuinamente opcional; `null` (ninguém preencheu) fica distinto de string vazia |
 
-**Método genérico reutilizável:** `RelatorioConsultas.ContarPor<TChave>` faz
-o `GroupBy` + `Count` + `OrderByDescending` usado por duas das quatro
-consultas pedidas (total por tipo, top bairros por severidade alta).
-`CsvIncidenteImportador` também tem um `TryParseEnum<TEnum>` privado,
-reaproveitado no parse de `Tipo` e `Severidade`.
+**Método genérico reutilizável:** `RelatorioConsultas.ContarPor<TChave>`
+(`Mobilidade.Application/Consultas/RelatorioConsultas.cs`) faz o `GroupBy` +
+`Count` + `OrderByDescending` usado por duas das consultas (total por tipo,
+top bairros por severidade alta). `ImportadorIncidentesCsv` também tem um
+`TryParseEnum<TEnum>` privado, reaproveitado no parse de `Tipo` e
+`Severidade`.
 
-O CSV (`dados/incidentes.csv`) tem 50 linhas válidas de dados fictícios mais
-duas linhas propositalmente malformadas (id não numérico, data inválida) —
-para provar que o importador descarta a linha ruim com um aviso em vez de
-quebrar a leitura do arquivo inteiro.
+O CSV de exemplo (`Mobilidade.Api/dados/incidentes.csv`) tem linhas
+propositalmente malformadas (id não numérico, data inválida) — para provar
+que o importador descarta a linha ruim com um aviso em vez de quebrar a
+leitura do arquivo inteiro.
 
 ## Pré-requisitos
 
-- [.NET SDK 8+](https://dotnet.microsoft.com/download)
+- [.NET SDK 10+](https://dotnet.microsoft.com/download)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) com Docker Compose
 
-## Banco de dados (SQL Server)
-
-```bash
-docker compose up -d
-```
-
-Sobe só o SQL Server, em `localhost:1433`, com usuário `sa` e senha definida em
-`MSSQL_SA_PASSWORD` (veja `.env.example`; padrão `Mobilidade#2026` se nenhuma
-`.env` for criada). Os dados ficam no volume nomeado `sqlserver_data` e
-sobrevivem a `docker compose down` — só somem com `docker compose down -v`.
-
-```bash
-docker compose down     # para os containers, mantém os dados
-docker compose down -v  # para os containers E apaga o volume (dados perdidos)
-```
-
-## Backend
+## Backend (rodando local, sem Docker)
 
 ```bash
 cd backend
 dotnet restore
 dotnet build
 dotnet test
+```
+
+## Subindo tudo via Docker Compose (API + SQL Server)
+
+`docker compose up` sobe os dois serviços juntos, sem nenhum passo manual: o
+SQL Server sobe primeiro, e a API só inicia depois que o banco responde como
+`healthy` (`depends_on: condition: service_healthy` — ver seção
+[Orquestração](#orquestração-depends_on-rede-e-persistência) abaixo).
+
+### Subir
+
+O comando usa a flag `-d` para devolver o terminal imediatamente, permitindo
+rodar `docker compose ps` logo em seguida (sem `-d`, o terminal fica preso
+mostrando o log ao vivo, e fechar essa janela derruba os containers).
+
+```bash
+cp .env.example .env    # uma vez só, se ainda não tiver .env
+docker compose up -d    # sobe API + SQL Server em background
+docker compose ps       # confirma que os dois estão de pé (sqlserver deve aparecer "healthy")
+```
+
+Se você alterou o código da API desde a última vez que a imagem foi
+construída, use `docker compose up -d --build` — a imagem Docker não sabe
+sozinha que o código-fonte mudou, então sem `--build` ela reaproveita a
+imagem antiga já compilada.
+
+### Derrubar
+
+```bash
+docker compose down     # derruba os containers, mantém os dados no volume
+docker compose down -v  # derruba os containers E apaga o volume (dados perdidos)
+```
+
+## Orquestração: depends_on, rede e persistência
+
+A API se conecta ao SQL Server pelo **nome do serviço** definido no
+`docker-compose.yml` (`sqlserver`), não por `localhost` — é assim que a rede
+interna criada pelo Compose resolve o hostname entre os containers. Isso
+está refletido na connection string do serviço `api`
+(`Server=sqlserver,1433;...`).
+
+**Volume nomeado** (`sqlserver_data`) garante que os dados do SQL Server
+sobrevivem a `docker compose down` — só são apagados com `docker compose
+down -v`.
+
+**Senha e connection string** vêm da variável de ambiente
+`MSSQL_SA_PASSWORD` (definida no `.env`, nunca commitada — veja
+`.env.example`). A mesma variável é reutilizada tanto pelo `sqlserver`
+(que cria o login `sa` com essa senha ao subir) quanto pela `api` (que
+autentica como `sa` usando essa mesma senha) — as duas pontas da
+autenticação precisam concordar sobre qual é a senha, senão a conexão da
+API é rejeitada pelo banco.
+
+### Evidência do `depends_on` funcionando
+
+```
+λ docker compose ps
+NAME                      IMAGE                                        COMMAND                  SERVICE     CREATED         STATUS                    PORTS
+mobilidade-sqlserver      mcr.microsoft.com/mssql/server:2022-latest   "/opt/mssql/bin/laun…"   sqlserver   2 weeks ago     Up 11 seconds (healthy)   0.0.0.0:1433->1433/tcp, [::]:1433->1433/tcp
+painel-mobilidade-api-1   painel-mobilidade-api                        "dotnet Mobilidade.A…"   api         3 minutes ago   Up 6 seconds              0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+```
+
+O `sqlserver` está de pé há 11 segundos e a `api` há apenas 6 — a diferença
+prova que a API esperou o banco ficar `healthy` antes de subir. Sem o
+`depends_on: condition: service_healthy`, os dois teriam iniciado
+praticamente juntos, sem essa defasagem.
+
+### Endpoint de health
+
+Implementado em `GET /health`, para provar que a API enxerga o banco via
+`SqlConnection` cru, sem EF Core.
+
+O endpoint tenta abrir a conexão com o banco (`OpenAsync()`) usando a mesma
+connection string configurada via variável de ambiente. Se a conexão abre
+com sucesso, retorna `200 OK` com o corpo `"OK"`. Se falhar, retorna
+`503 Service Unavailable` — sem expor o detalhe da exceção na resposta, para
+não vazar informação de infraestrutura; a mensagem de erro real
+("Falha ao tentar se conectar no banco de dados") é gravada apenas no log do
+servidor, acessível via `docker compose logs api`.
+
+```bash
+curl http://localhost:8080/health
 ```
 
 ## Minimal API vs Controller
@@ -162,3 +220,48 @@ Em vez de uma interface genérica única (tipo `IServicoDeIncidentes` com métod
 O controller recebe `IIncidenteRepository` no construtor — uma abstração — nunca instancia `RepositorioIncidentesEmMemoria` diretamente. Quem decide qual implementação real usar é o `Program.cs`, na hora do registro de DI (`AddSingleton<IIncidenteRepository, RepositorioIncidentesEmMemoria>()`). O mesmo vale para o endpoint de importação, que depende de `IIncidenteImportador`, não de `ImportadorIncidentesCsv`.
 
 **O que quebraria se violado:** se o controller instanciasse `new RepositorioIncidentesEmMemoria()` diretamente, o código de alto nível (regras de HTTP) passaria a depender de detalhe de baixo nível (como os dados são armazenados) — impossível trocar a implementação sem editar o controller, e impossível testar o controller isoladamente com um repositório falso.
+
+## Containerização (Docker)
+
+Build multi-stage: a imagem final não carrega o SDK, só o runtime necessário
+para executar a API já compilada. Precisa ser buildado a partir da **raiz do
+repositório**, porque o contexto precisa enxergar `backend/src/*` inteiro
+(referências entre projetos):
+
+```bash
+docker build -f backend/src/Mobilidade.Api/Dockerfile -t mobilidade-api .
+docker run -p 8080:8080 mobilidade-api
+```
+
+Roda como o usuário não-root `app` (já vem pronto nas imagens oficiais do
+.NET, não foi criado manualmente).
+
+### O que cada estágio produz
+
+- **`build`** (`sdk:10.0`): faz `dotnet restore` e `dotnet publish`. Precisa do
+  compilador C# e do NuGet para transformar código-fonte em DLLs. Depois do
+  `publish`, o resultado fica em `/app/publish`.
+- **`final`** (`aspnet:10.0`): recebe só o conteúdo de `/app/publish` via
+  `COPY --from=build`. Não tem SDK, não tem código-fonte — só o runtime do
+  ASP.NET Core e as DLLs prontas para rodar com `dotnet Mobilidade.Api.dll`.
+
+### Tamanho das imagens
+
+Medido com:
+```bash
+docker images mobilidade-api
+docker images mobilidade-api-build-stage   # build com --target build, só para medir
+```
+
+| Estágio | Imagem base | Disk usage | Content size |
+|---|---|---|---|
+| Final (runtime) | `aspnet:10.0` | 341MB | 96.2MB |
+| Build | `sdk:10.0` | 1.26GB | 331MB |
+
+aspnet não precisa de compilador nem de ferramenta de pacotes (NuGet), pois
+só precisa trazer o resultado que o estágio de build entrega. Por isso a
+diferença de tamanho entre as imagens: o container que já está rodando em
+produção está atualizado conforme o código publicado, e não tem o que
+compilar. Para alterar algo no código, é necessário buildar uma imagem nova
+(com o compilador rodando de novo no estágio de build) e então atualizar o
+container de produção a partir dela.
