@@ -16,15 +16,15 @@ public enum Severidade
     Media,
     Alta
 }
-/* sealed — proíbe herança: nenhuma outra classe pode fazer class Coisa : Incidente. 
-Faz sentido aqui porque Incidente é um registro de dados fechado, 
-não uma hierarquia de tipos — não existe "um tipo de Incidente que se comporta diferente".
-*/
-public sealed record Incidente(
-    int Id,
-    DateTime DataHora,
-    TipoIncidente Tipo,
-    Severidade? Severidade,
-    string Bairro,
-    string? Descricao
-);
+
+public sealed class Incidente
+{
+    public int Id { get; set; }
+    public DateTime DataHora { get; set; }
+    public TipoIncidente Tipo { get; set; }
+    public Severidade? Severidade { get; set; }
+    public int BairroId { get; set; }
+    public string? Descricao { get; set; }
+    
+    public Bairro Bairro { get; set; }
+}
