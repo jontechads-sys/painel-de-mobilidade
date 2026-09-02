@@ -14,7 +14,16 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
     }
     public Incidente Criar(Incidente incidente)
     {
-        var incidenteFinal = incidente with { Id = _proximoId };
+        var incidenteFinal = new Incidente
+        {
+            Id = _proximoId,
+            DataHora = incidente.DataHora,
+            Tipo = incidente.Tipo,
+            Severidade = incidente.Severidade,
+            BairroId = incidente.BairroId,
+            Descricao = incidente.Descricao,
+            Bairro = incidente.Bairro
+        };
         _incidentes[incidenteFinal.Id] = incidenteFinal;
         _proximoId++;
         return incidenteFinal;
@@ -33,7 +42,16 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
         {
             return null;
         }
-        var incidenteAtualizado = incidente with {Id = id};
+        var incidenteAtualizado = new Incidente
+        {
+            Id = id,
+            DataHora = incidente.DataHora,
+            Tipo = incidente.Tipo,
+            Severidade = incidente.Severidade,
+            BairroId = incidente.BairroId,
+            Descricao = incidente.Descricao,
+            Bairro = incidente.Bairro
+        };
         _incidentes[id] = incidenteAtualizado;
         return incidenteAtualizado;
     }
