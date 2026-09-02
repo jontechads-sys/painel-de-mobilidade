@@ -26,5 +26,5 @@ public sealed class Incidente
     public int BairroId { get; set; }
     public string? Descricao { get; set; }
     
-    public Bairro Bairro { get; set; }
+    public Bairro? Bairro { get; set; }
 }
