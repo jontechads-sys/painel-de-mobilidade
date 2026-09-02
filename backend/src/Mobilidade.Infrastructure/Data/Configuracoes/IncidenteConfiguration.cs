@@ -19,7 +19,7 @@ public class IncidenteConfiguration : IEntityTypeConfiguration<Incidente>
         builder.Property(i => i.Descricao)
             .IsRequired(false);
 
-        builder.HasOne<Bairro>()
+        builder.HasOne(i => i.Bairro)
             .WithMany()
             .HasForeignKey(i => i.BairroId);
     }
