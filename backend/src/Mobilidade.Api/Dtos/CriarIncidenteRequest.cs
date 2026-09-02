@@ -7,5 +7,7 @@ public sealed record CriarIncidenteRequest(
     DateTime DataHora,
     TipoIncidente Tipo,
     Severidade? Severidade,
-    [Required, MinLength(1)]string Bairro,
-    string? Descricao);
+    int BairroId,
+    //[Required, MinLength(1)]string Bairro,
+    string? Descricao
+    );

@@ -3,6 +3,8 @@ using Mobilidade.Application.Repositorio;
 using Mobilidade.Infrastructure.Importacao;
 using Mobilidade.Infrastructure.Repositorio;
 using Microsoft.Data.SqlClient;
+using Mobilidade.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,6 +15,8 @@ builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<IIncidenteRepository, RepositorioIncidentesEmMemoria>();
 builder.Services.AddTransient<IIncidenteImportador, ImportadorIncidentesCsv>();
 
+builder.Services.AddDbContext<IncidentesDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())

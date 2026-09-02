@@ -7,5 +7,6 @@ public sealed record AtualizarIncidenteRequest(
     DateTime DataHora,
     TipoIncidente Tipo,
     Severidade? Severidade,
-    [Required, MinLength(1)] string Bairro,
+    int BairroId,
+    //[Required, MinLength(1)] string Bairro,
     string? Descricao);
