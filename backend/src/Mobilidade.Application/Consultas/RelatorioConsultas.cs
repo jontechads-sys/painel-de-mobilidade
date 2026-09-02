@@ -22,7 +22,7 @@ public static class RelatorioConsultas
         => ContarPor(incidentes, i => i.Tipo);
 
     public static IReadOnlyList<Contagem<string>> Top3BairrosSeveridadeAlta(IEnumerable<Incidente> incidentes)
-        => ContarPor(incidentes.Where(i => i.Severidade == Severidade.Alta), i => i.Bairro)
+        => ContarPor(incidentes.Where(i => i.Severidade == Severidade.Alta), i => i.Bairro.Nome)
             .Take(3)
             .ToList();
 
@@ -38,7 +38,7 @@ public static class RelatorioConsultas
 
     public static IReadOnlyList<ResumoBairro> ResumoPorBairro(IEnumerable<Incidente> incidentes)
         => incidentes
-            .GroupBy(i => i.Bairro)
+            .GroupBy(i => i.Bairro.Nome)
             .Select(g => new ResumoBairro(
                 Bairro: g.Key,
                 Total: g.Count(),
