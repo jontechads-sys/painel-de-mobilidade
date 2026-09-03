@@ -25,6 +25,7 @@ public sealed class Incidente
     public Severidade? Severidade { get; set; }
     public int BairroId { get; set; }
     public string? Descricao { get; set; }
-    
+
     public Bairro? Bairro { get; set; }
+    public ICollection<Atendimento> Atendimentos { get; set; } = new List<Atendimento>();
 }

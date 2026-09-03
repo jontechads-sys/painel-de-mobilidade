@@ -19,5 +19,6 @@ public class IncidentesDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(new IncidenteConfiguration());
         modelBuilder.ApplyConfiguration(new BairroConfiguration());
+        modelBuilder.ApplyConfiguration(new AtendimentoConfiguration());
     }
 }

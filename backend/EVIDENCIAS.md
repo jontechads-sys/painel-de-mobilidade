@@ -16,6 +16,7 @@ dotnet ef database update -s src/Mobilidade.Api -p src/Mobilidade.Infrastructure
 
 ### SAIDA
 
+```
 Build succeeded.
 Applying migration '20260902183546_CreateIncidentesAndBairros'.
 CREATE TABLE [Bairros] (
@@ -34,10 +35,20 @@ CONSTRAINT [PK_Incidentes] PRIMARY KEY ([Id]),
 CONSTRAINT [FK_Incidentes_Bairros_BairroId] FOREIGN KEY ([BairroId]) REFERENCES [Bairros] ([Id]) ON DELETE CASCADE
 );
 CREATE INDEX [IX_Incidentes_BairroId] ON [Incidentes] ([BairroId]);
-Done.
+Done. 
+```
 
 ### Por quê
 
 - **Bairro entidade própria:** normalização — elimina repetição de strings
 - **FK com CASCADE:** deletar bairro deleta incidentes relacionados
 - **Índice em BairroId:** consultas `WHERE BairroId = X` ficam mais rápidas (seek)
+
+# Rebase : Evidencias
+```
+bash git rebase origin/main
+```
+## SAIDA
+```
+Successfully rebased and updated refs/heads/semana-04.
+```\
