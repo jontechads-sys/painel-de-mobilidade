@@ -22,6 +22,37 @@ namespace Mobilidade.Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Mobilidade.Domain.Modelos.Atendimento", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DataHora")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("IncidenteId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("OrgaoResponsavel")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Situacao")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidenteId");
+
+                    b.ToTable("Atendimento");
+                });
+
             modelBuilder.Entity("Mobilidade.Domain.Modelos.Bairro", b =>
                 {
                     b.Property<int>("Id")
@@ -70,6 +101,17 @@ namespace Mobilidade.Infrastructure.Migrations
                     b.ToTable("Incidentes");
                 });
 
+            modelBuilder.Entity("Mobilidade.Domain.Modelos.Atendimento", b =>
+                {
+                    b.HasOne("Mobilidade.Domain.Modelos.Incidente", "Incidente")
+                        .WithMany("Atendimentos")
+                        .HasForeignKey("IncidenteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Incidente");
+                });
+
             modelBuilder.Entity("Mobilidade.Domain.Modelos.Incidente", b =>
                 {
                     b.HasOne("Mobilidade.Domain.Modelos.Bairro", "Bairro")
@@ -79,6 +121,11 @@ namespace Mobilidade.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Bairro");
+                });
+
+            modelBuilder.Entity("Mobilidade.Domain.Modelos.Incidente", b =>
+                {
+                    b.Navigation("Atendimentos");
                 });
 #pragma warning restore 612, 618
         }
