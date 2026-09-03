@@ -12,15 +12,28 @@ public class RelatorioConsultasTests
         Severidade? severidade = null,
         int bairroId = 1,
         string? descricao = null)
-        => new Incidente
+    {
+        var bairroNome = bairroId switch
+        {
+            1 => "Centro",
+            2 => "Vila Nova",
+            3 => "Vila Mariana",
+            4 => "Jardins",
+            5 => "Boa Vista",
+            _ => $"Bairro {bairroId}"
+        };
+
+        return new Incidente
         {
             Id = id,
             DataHora = dataHora,
             Tipo = tipo,
             Severidade = severidade,
             BairroId = bairroId,
-            Descricao = descricao
+            Descricao = descricao,
+            Bairro = new Bairro { Id = bairroId, Nome = bairroNome }
         };
+    }
 
     [Fact]
     public void ContarPor_AgrupaEOrdenaPorQuantidadeDecrescente()
@@ -55,9 +68,10 @@ public class RelatorioConsultasTests
 
         var resultado = RelatorioConsultas.Top3BairrosSeveridadeAlta(incidentes);
 
-        Assert.Equal(2, resultado.Count);
-        Assert.Equal(("Centro", 2), (resultado[0].Chave, resultado[0].Quantidade));
+        Assert.Equal(3, resultado.Count);
+        Assert.Equal(("Centro", 1), (resultado[0].Chave, resultado[0].Quantidade));
         Assert.Equal(("Vila Nova", 1), (resultado[1].Chave, resultado[1].Quantidade));
+        Assert.Equal(("Jardins", 1), (resultado[2].Chave, resultado[2].Quantidade));
     }
 
     [Fact]
