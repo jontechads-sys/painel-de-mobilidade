@@ -12,7 +12,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 
-builder.Services.AddSingleton<IIncidenteRepository, RepositorioIncidentesEfCore>();
+builder.Services.AddScoped<IIncidenteRepository, RepositorioIncidentesEfCore>();
 builder.Services.AddTransient<IIncidenteImportador, ImportadorIncidentesCsv>();
 
 builder.Services.AddDbContext<IncidentesDbContext>(options =>

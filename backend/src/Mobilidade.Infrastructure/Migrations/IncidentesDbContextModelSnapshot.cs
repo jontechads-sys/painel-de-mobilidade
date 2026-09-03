@@ -88,7 +88,7 @@ namespace Mobilidade.Infrastructure.Migrations
                     b.Property<string>("Descricao")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<int?>("Severidade")
+                    b.Property<int>("Severidade")
                         .HasColumnType("int");
 
                     b.Property<int>("Tipo")
