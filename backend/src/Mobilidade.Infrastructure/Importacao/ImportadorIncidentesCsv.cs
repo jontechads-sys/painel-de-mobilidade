@@ -56,9 +56,9 @@ public sealed class ImportadorIncidentesCsv : IIncidenteImportador
                 continue;
             }
 
-            Severidade? severidade = TryParseEnum<Severidade>(campos[3], out var severidadeValor)
+            Severidade severidade = TryParseEnum<Severidade>(campos[3], out var severidadeValor)
                 ? severidadeValor
-                : null;
+                : Severidade.NaoTriada;
 
             var nomeBairro = string.IsNullOrWhiteSpace(campos[4]) ? "(nao informado)" : campos[4].Trim();
             var descricao = string.IsNullOrWhiteSpace(campos[5]) ? null : campos[5].Trim();

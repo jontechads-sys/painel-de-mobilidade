@@ -14,7 +14,8 @@ public enum Severidade
 {
     Baixa,
     Media,
-    Alta
+    Alta,
+    NaoTriada
 }
 
 public sealed class Incidente
@@ -22,7 +23,7 @@ public sealed class Incidente
     public int Id { get; set; }
     public DateTime DataHora { get; set; }
     public TipoIncidente Tipo { get; set; }
-    public Severidade? Severidade { get; set; }
+    public Severidade Severidade { get; set; }
     public int BairroId { get; set; }
     public string? Descricao { get; set; }
 

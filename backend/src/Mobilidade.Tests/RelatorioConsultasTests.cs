@@ -9,7 +9,7 @@ public class RelatorioConsultasTests
         int id,
         DateTime dataHora,
         TipoIncidente tipo = TipoIncidente.Colisao,
-        Severidade? severidade = null,
+        Severidade severidade = Severidade.NaoTriada,
         int bairroId = 1,
         string? descricao = null)
     {
@@ -63,7 +63,7 @@ public class RelatorioConsultasTests
             Criar(2, DateTime.Today, bairroId: 2, severidade: Severidade.Alta),
             Criar(3, DateTime.Today, bairroId: 3, severidade: Severidade.Baixa),
             Criar(4, DateTime.Today, bairroId: 4, severidade: Severidade.Alta),
-            Criar(5, DateTime.Today, bairroId: 5, severidade: null),
+            Criar(5, DateTime.Today, bairroId: 5, severidade: Severidade.NaoTriada),
         };
 
         var resultado = RelatorioConsultas.Top3BairrosSeveridadeAlta(incidentes);

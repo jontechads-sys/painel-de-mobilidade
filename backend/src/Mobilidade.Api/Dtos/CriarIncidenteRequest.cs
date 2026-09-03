@@ -6,7 +6,7 @@ namespace Mobilidade.Api.Dtos;
 public sealed record CriarIncidenteRequest(
     DateTime DataHora,
     TipoIncidente Tipo,
-    Severidade? Severidade,
+    Severidade Severidade,
     int BairroId,
     //[Required, MinLength(1)]string Bairro,
     string? Descricao
