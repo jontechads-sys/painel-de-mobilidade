@@ -80,6 +80,40 @@ dotnet build
 dotnet test
 ```
 
+## Testes de integração
+
+Diferente dos testes unitários (`dotnet test` roda todos), os testes de
+integração da Semana 4 conectam direto no SQL Server real via
+`UseSqlServer` — não usam o provider `InMemory`, porque ele não aplica as
+mesmas restrições (constraints, tamanho de coluna, foreign keys) que o
+banco real aplica, e é exatamente esse comportamento que a Semana 4 quer
+provar.
+
+**Pré-requisito:** SQL Server precisa estar de pé (`docker compose up -d`
+na raiz do repositório), respondendo em `localhost,1433` com as
+credenciais do `appsettings.Development.json` local.
+
+Rodar só os testes de integração:
+
+```bash
+cd backend
+dotnet test --filter "RepositorioIncidentesEfCoreTests|ServicoAberturaIncidenteTests"
+```
+
+Cobre os três casos mínimos exigidos:
+
+- **Criar e buscar** (`RepositorioIncidentesEfCoreTests.CriarEBuscarIncidente_ConfirmaQueÉOMesmoIncidente`):
+  grava um incidente contra o banco real, busca de volta pelo Id gerado, confirma que os dados batem.
+- **Buscar id inexistente retorna null** (`RepositorioIncidentesEfCoreTests.BuscarPorIdInexistente_RetornaNull`):
+  confirma que o contrato do `BuscarPorId` (nunca lança exceção, sempre retorna `null`) se mantém
+  contra o banco real, não só em memória.
+- **Rollback da transação** (`ServicoAberturaIncidenteTests.Executar_ComAtendimentoInvalido_DesfazIncidenteViaRollback`):
+  cria um `Incidente` e um `Atendimento` inicial na mesma transação; o `Atendimento` tem um campo
+  inválido de propósito (viola `HasMaxLength`); o SQL Server rejeita o INSERT; a transação desfaz
+  também o `Incidente` já gravado.
+
+Ver `EVIDENCIAS.md` para a saída completa dos três testes rodando juntos.
+
 ## Subindo tudo via Docker Compose (API + SQL Server)
 
 `docker compose up` sobe os dois serviços juntos, sem nenhum passo manual: o
@@ -265,16 +299,3 @@ produção está atualizado conforme o código publicado, e não tem o que
 compilar. Para alterar algo no código, é necessário buildar uma imagem nova
 (com o compilador rodando de novo no estágio de build) e então atualizar o
 container de produção a partir dela.
-
-## Testes de integração
-
-Diferente dos testes unitários (`dotnet test` roda todos), os testes de
-integração da Semana 4 conectam direto no SQL Server real via
-`UseSqlServer` — não usam o provider `InMemory`, porque ele não aplica as
-mesmas restrições (constraints, tamanho de coluna, foreign keys) que o
-banco real aplica, e é exatamente esse comportamento que a Semana 4 quer
-provar.
-
-**Pré-requisito:** SQL Server precisa estar de pé (`docker compose up -d`
-na raiz do repositório), respondendo em `localhost,1433` com as
-credenciais do `appsettings.Development.json` local.
