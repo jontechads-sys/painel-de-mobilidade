@@ -291,3 +291,22 @@ primeiro `SaveChangesAsync()` (INSERT commitado imediatamente). O erro no
 `Atendimento` não teria como desfazer essa gravação anterior — o banco
 ficaria com um `Incidente` órfão, sem nenhum atendimento associado,
 violando a regra de negócio silenciosamente, sem qualquer aviso.
+
+---
+
+## Testes de integração contra SQL Server real
+
+### Contexto
+
+Três casos mínimos, todos contra banco real (`UseSqlServer`, não
+`InMemory`) — ver seção "Testes de integração" no README para o porquê.
+
+### Caso 1: Criar e buscar
+
+```bash
+dotnet test --filter CriarEBuscarIncidente
+```
+```
+Resumo do teste: total: 1; falhou: 0; bem-sucedido: 1; ignorado: 0; duração: 4,8s
+Construir êxito(s) com 7 aviso(s) em 7,2s
+```
