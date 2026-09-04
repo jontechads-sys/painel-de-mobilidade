@@ -265,3 +265,16 @@ produção está atualizado conforme o código publicado, e não tem o que
 compilar. Para alterar algo no código, é necessário buildar uma imagem nova
 (com o compilador rodando de novo no estágio de build) e então atualizar o
 container de produção a partir dela.
+
+## Testes de integração
+
+Diferente dos testes unitários (`dotnet test` roda todos), os testes de
+integração da Semana 4 conectam direto no SQL Server real via
+`UseSqlServer` — não usam o provider `InMemory`, porque ele não aplica as
+mesmas restrições (constraints, tamanho de coluna, foreign keys) que o
+banco real aplica, e é exatamente esse comportamento que a Semana 4 quer
+provar.
+
+**Pré-requisito:** SQL Server precisa estar de pé (`docker compose up -d`
+na raiz do repositório), respondendo em `localhost,1433` com as
+credenciais do `appsettings.Development.json` local.
