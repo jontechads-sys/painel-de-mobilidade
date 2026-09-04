@@ -1,5 +1,9 @@
 # Migrations — Evidências
 
+> **Nota:** todos os comandos abaixo assumem que você está dentro da pasta
+> `backend/` (`cd backend` a partir da raiz do repositório, onde este
+> arquivo está localizado).
+
 ## Semana 4: CreateIncidentesAndBairros
 
 ### Comando rodado
