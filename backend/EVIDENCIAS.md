@@ -299,14 +299,71 @@ violando a regra de negócio silenciosamente, sem qualquer aviso.
 ### Contexto
 
 Três casos mínimos, todos contra banco real (`UseSqlServer`, não
-`InMemory`) — ver seção "Testes de integração" no README para o porquê.
+`InMemory`) — ver seção "Testes de integração" no README para o porquê
+de não usar o provider `InMemory` aqui.
 
 ### Caso 1: Criar e buscar
 
 ```bash
 dotnet test --filter CriarEBuscarIncidente
 ```
+
 ```
-Resumo do teste: total: 1; falhou: 0; bem-sucedido: 1; ignorado: 0; duração: 4,8s
+Resumo do teste: total: 1; falhou: 0; bem-sucedido: 1; ignorado: 0; duração: 4,8s
 Construir êxito(s) com 7 aviso(s) em 7,2s
 ```
+
+Cria um `Incidente` contra o banco real via `RepositorioIncidentesEfCore.Criar`,
+busca de volta pelo `Id` gerado pelo SQL Server (`IDENTITY`), e confirma
+que a `Descricao` recuperada é igual à que foi gravada.
+
+### Caso 2: Buscar id inexistente retorna null
+
+```bash
+dotnet test --filter BuscarPorIdInexistente
+```
+
+```
+Resumo do teste: total: 1; falhou: 0; bem-sucedido: 1; ignorado: 0; duração: 2,1s
+Construir êxito(s) com 1 aviso(s) em 3,7s
+```
+
+Confirma que o contrato do `BuscarPorId` (retorna `null`, nunca lança
+exceção, quando o id não existe) se mantém contra o banco real — o
+mesmo contrato já verificado contra `InMemory` em
+`RepositorioComparativoTests`.
+
+### Caso 3: Rollback da transação
+
+Ver seção "Transação com falha provocada" acima — mesmo teste
+(`ServicoAberturaIncidenteTests.Executar_ComAtendimentoInvalido_DesfazIncidenteViaRollback`).
+
+### Os três juntos — comando único documentado no README
+
+```bash
+dotnet test --filter "RepositorioIncidentesEfCoreTests|ServicoAberturaIncidenteTests"
+```
+
+```
+Resumo do teste: total: 3; falhou: 0; bem-sucedido: 3; ignorado: 0; duração: 2,3s
+Construir êxito(s) com 1 aviso(s) em 3,9s
+```
+
+### Limitação conhecida: sem cleanup automático
+
+`CriarEBuscarIncidente_ConfirmaQueÉOMesmoIncidente` grava um `Incidente`
+real no banco e não o remove ao final — cada execução do teste deixa um
+registro novo e permanente. Depois de rodar a suíte repetidas vezes
+durante o desenvolvimento, o banco acumulou 3 incidentes de teste (Ids
+8, 10 e 11), que foram removidos manualmente antes desta entrega:
+
+```bash
+sqlcmd -S localhost,1433 -U sa -P "Mobilidade#2026" -d MobilidadeDb -Q "DELETE FROM Incidentes WHERE Id IN (8, 10, 11)"
+```
+
+O ideal seria o teste fazer seu próprio cleanup (chamando
+`repositorio.Remover(incidenteCriado.Id)` ao final, ou envolvendo tudo
+numa transação que sempre reverte) para não depender de limpeza manual
+e manter os testes independentes de quantas vezes já rodaram. Não
+implementado nesta entrega por não ser exigência do checklist da Parte 3,
+mas é uma melhoria identificada para a Semana 5+.
