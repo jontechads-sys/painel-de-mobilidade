@@ -8,6 +8,7 @@ public class AtendimentoConfiguration : IEntityTypeConfiguration<Atendimento>
 {
     public void Configure(EntityTypeBuilder<Atendimento> builder)
     {
+        builder.ToTable("Atendimento");
         builder.HasKey(a => a.Id);
 
         builder.Property(a => a.OrgaoResponsavel)
