@@ -12,6 +12,7 @@ public class IncidentesDbContext : DbContext
     }
     public DbSet<Incidente> Incidentes { get; set; }
     public DbSet<Bairro> Bairros { get; set; }
+    public DbSet<Atendimento> Atendimentos {get; set;}
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
