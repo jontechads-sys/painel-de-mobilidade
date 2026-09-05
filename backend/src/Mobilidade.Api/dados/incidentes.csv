@@ -1,4 +1,4 @@
-id,data_hora,tipo,severidade,bairro,descricao
+id,data_hora,tipo,severidade,bairroid,descricao
 1,2026-07-13T07:20:00,Colisao,Alta,Centro,Colisão entre dois veículos na Avenida Central
 2,2026-07-13T12:05:00,Obra,Baixa,Vila Nova,Obra de recapeamento reduz uma faixa
 3,2026-07-13T18:40:00,Engarrafamento,Media,Boa Vista,

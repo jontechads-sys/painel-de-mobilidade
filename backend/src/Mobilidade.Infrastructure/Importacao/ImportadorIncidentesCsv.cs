@@ -56,14 +56,24 @@ public sealed class ImportadorIncidentesCsv : IIncidenteImportador
                 continue;
             }
 
-            Severidade? severidade = TryParseEnum<Severidade>(campos[3], out var severidadeValor)
+            Severidade severidade = TryParseEnum<Severidade>(campos[3], out var severidadeValor)
                 ? severidadeValor
-                : null;
+                : Severidade.NaoTriada;
 
-            var bairro = string.IsNullOrWhiteSpace(campos[4]) ? "(nao informado)" : campos[4].Trim();
+            var nomeBairro = string.IsNullOrWhiteSpace(campos[4]) ? "(nao informado)" : campos[4].Trim();
             var descricao = string.IsNullOrWhiteSpace(campos[5]) ? null : campos[5].Trim();
 
-            incidentes.Add(new Incidente(id, dataHora, tipo, severidade, bairro, descricao));
+            // TODO: resolver nomeBairro -> BairroId de verdade (lookup/criacao via repositorio de bairros).
+            // Por enquanto usa um placeholder so para destravar a compilacao.
+            incidentes.Add(new Incidente
+            {
+                Id = id,
+                DataHora = dataHora,
+                Tipo = tipo,
+                Severidade = severidade,
+                BairroId = 0,
+                Descricao = descricao
+            });
         }
 
         return new ResultadoImportacao(incidentes, avisos);

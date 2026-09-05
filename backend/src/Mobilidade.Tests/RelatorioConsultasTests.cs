@@ -9,10 +9,31 @@ public class RelatorioConsultasTests
         int id,
         DateTime dataHora,
         TipoIncidente tipo = TipoIncidente.Colisao,
-        Severidade? severidade = null,
-        string bairro = "Centro",
+        Severidade severidade = Severidade.NaoTriada,
+        int bairroId = 1,
         string? descricao = null)
-        => new(id, dataHora, tipo, severidade, bairro, descricao);
+    {
+        var bairroNome = bairroId switch
+        {
+            1 => "Centro",
+            2 => "Vila Nova",
+            3 => "Vila Mariana",
+            4 => "Jardins",
+            5 => "Boa Vista",
+            _ => $"Bairro {bairroId}"
+        };
+
+        return new Incidente
+        {
+            Id = id,
+            DataHora = dataHora,
+            Tipo = tipo,
+            Severidade = severidade,
+            BairroId = bairroId,
+            Descricao = descricao,
+            Bairro = new Bairro { Id = bairroId, Nome = bairroNome }
+        };
+    }
 
     [Fact]
     public void ContarPor_AgrupaEOrdenaPorQuantidadeDecrescente()
@@ -38,18 +59,19 @@ public class RelatorioConsultasTests
     {
         var incidentes = new[]
         {
-            Criar(1, DateTime.Today, bairro: "Centro", severidade: Severidade.Alta),
-            Criar(2, DateTime.Today, bairro: "Centro", severidade: Severidade.Alta),
-            Criar(3, DateTime.Today, bairro: "Centro", severidade: Severidade.Baixa),
-            Criar(4, DateTime.Today, bairro: "Vila Nova", severidade: Severidade.Alta),
-            Criar(5, DateTime.Today, bairro: "Boa Vista", severidade: null),
+            Criar(1, DateTime.Today, bairroId: 1, severidade: Severidade.Alta),
+            Criar(2, DateTime.Today, bairroId: 2, severidade: Severidade.Alta),
+            Criar(3, DateTime.Today, bairroId: 3, severidade: Severidade.Baixa),
+            Criar(4, DateTime.Today, bairroId: 4, severidade: Severidade.Alta),
+            Criar(5, DateTime.Today, bairroId: 5, severidade: Severidade.NaoTriada),
         };
 
         var resultado = RelatorioConsultas.Top3BairrosSeveridadeAlta(incidentes);
 
-        Assert.Equal(2, resultado.Count);
-        Assert.Equal(("Centro", 2), (resultado[0].Chave, resultado[0].Quantidade));
+        Assert.Equal(3, resultado.Count);
+        Assert.Equal(("Centro", 1), (resultado[0].Chave, resultado[0].Quantidade));
         Assert.Equal(("Vila Nova", 1), (resultado[1].Chave, resultado[1].Quantidade));
+        Assert.Equal(("Jardins", 1), (resultado[2].Chave, resultado[2].Quantidade));
     }
 
     [Fact]
@@ -85,9 +107,9 @@ public class RelatorioConsultasTests
     {
         var incidentes = new[]
         {
-            Criar(1, DateTime.Today, TipoIncidente.Colisao, Severidade.Alta, "Centro"),
-            Criar(2, DateTime.Today, TipoIncidente.Colisao, Severidade.Baixa, "Centro"),
-            Criar(3, DateTime.Today, TipoIncidente.Obra, Severidade.Media, "Centro"),
+            Criar(1, DateTime.Today, TipoIncidente.Colisao, Severidade.Alta, bairroId: 1),
+            Criar(2, DateTime.Today, TipoIncidente.Colisao, Severidade.Baixa, bairroId: 1),
+            Criar(3, DateTime.Today, TipoIncidente.Obra, Severidade.Media, bairroId: 1),
         };
 
         var resumo = Assert.Single(RelatorioConsultas.ResumoPorBairro(incidentes));
