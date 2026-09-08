@@ -232,7 +232,7 @@ string de 101 caracteres, violando o `HasMaxLength(100)` configurado em
 ### Estado do banco ANTES do teste
 
 ```bash
-sqlcmd -S localhost,1433 -U sa -P "Mobilidade#2026" -d MobilidadeDb -Q "SELECT COUNT(*) AS TotalIncidentes FROM Incidentes; SELECT COUNT(*) AS TotalAtendimentos FROM Atendimento"
+sqlcmd -S localhost,1433 -U sa -P "Sua_Senha_Aqui" -d MobilidadeDb -Q "SELECT COUNT(*) AS TotalIncidentes FROM Incidentes; SELECT COUNT(*) AS TotalAtendimentos FROM Atendimento"
 ```
 
 ```
@@ -271,7 +271,7 @@ would be truncated in table 'MobilidadeDb.dbo.Atendimento', column
 ### Estado do banco DEPOIS do teste
 
 ```bash
-sqlcmd -S localhost,1433 -U sa -P "Mobilidade#2026" -d MobilidadeDb -Q "SELECT COUNT(*) AS TotalIncidentes FROM Incidentes; SELECT COUNT(*) AS TotalAtendimentos FROM Atendimento"
+sqlcmd -S localhost,1433 -U sa -P "Sua_Senha_Aqui" -d MobilidadeDb -Q "SELECT COUNT(*) AS TotalIncidentes FROM Incidentes; SELECT COUNT(*) AS TotalAtendimentos FROM Atendimento"
 ```
 
 ```
@@ -362,7 +362,7 @@ durante o desenvolvimento, o banco acumulou 3 incidentes de teste (Ids
 8, 10 e 11), que foram removidos manualmente antes desta entrega:
 
 ```bash
-sqlcmd -S localhost,1433 -U sa -P "Mobilidade#2026" -d MobilidadeDb -Q "DELETE FROM Incidentes WHERE Id IN (8, 10, 11)"
+sqlcmd -S localhost,1433 -U sa -P "Sua_Senha_Aqui" -d MobilidadeDb -Q "DELETE FROM Incidentes WHERE Id IN (8, 10, 11)"
 ```
 
 O ideal seria o teste fazer seu próprio cleanup (chamando
@@ -371,3 +371,80 @@ numa transação que sempre reverte) para não depender de limpeza manual
 e manter os testes independentes de quantas vezes já rodaram. Não
 implementado nesta entrega por não ser exigência do checklist da Parte 3,
 mas é uma melhoria identificada para a Semana 5+.
+
+## Git e cadência — Semana 5
+
+### Rebase da `semana-05` sobre o `main` atualizado
+
+**O que se quer provar:** a branch estava baseada em `3316214` (`semana-04`,
+antes do merge). Após o rebase, passou a estar em cima de `dd03da9`, o merge
+do PR #22 no `main`.
+
+**Comandos:**
+
+```
+git fetch origin
+git rebase origin/main
+git log --oneline -5
+```
+
+**Saída do `git fetch origin`:**
+
+```
+remote: Enumerating objects: 1, done.
+remote: Counting objects: 100% (1/1), done.
+remote: Total 1 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
+Unpacking objects: 100% (1/1), 898 bytes | 179.00 KiB/s, done.
+From https://github.com/renatodota/painel-mobilidade
+d4ba2af..dd03da9 main -> origin/main
+```
+
+**Saída do `git rebase origin/main`:**
+
+```
+Successfully rebased and updated refs/heads/semana-05.
+```
+
+**Saída do `git log --oneline -5` (base já realinhada):**
+
+```
+2311634 (HEAD -> semana-05, origin/semana-05) registra decisao sobre NaoTriada na criacao de Incidente (campos pendentes)
+dd03da9 (origin/main, origin/HEAD) Merge pull request #22 from renatodota/semana-04
+3316214 (origin/semana-04, semana-04) fix: mover EVIDENCIAS.md para a raiz do repositorio
+710cf9c docs: registrar limitacao conhecida sobre cleanup dos testes
+6df2bb0 feat: testes de integracao criar+buscar e buscar id inexistente
+```
+
+### Force push após o rebase
+
+**O que se quer provar:** o rebase reescreveu o histórico local, então o
+remoto precisou ser sobrescrito. Usei `--force-with-lease` em vez de
+`--force`: ele recusa o push se alguém tiver enviado algo para a branch desde
+o último fetch, evitando sobrescrever trabalho de terceiros.
+
+**Comando:**
+```
+git push --force-with-lease 
+```
+
+
+**Confirmação:** no `git log` acima, `origin/semana-05` aparece junto de
+`HEAD`, ou seja, o remoto está no mesmo commit que o local.
+
+### Fusão de dois commits com a mesma mensagem
+
+**O que se quer provar:** `3f9e807` e `e34e332` tinham mensagem idêntica — o
+primeiro criou o `DECISOES.md` (76 linhas), o segundo corrigia duas linhas
+dele (título markdown e nome do valor do enum). Foram mesclados em `2311634`
+antes do rebase, sem perda de conteúdo.
+
+**Comandos:**
+
+```
+git reset --soft 3316214
+git commit -m "registra decisao sobre NaoTriada na criacao de Incidente (campos pendentes)"
+git push --force-with-lease
+```
+
+**Observação:** os hashes `3f9e807` e `e34e332` não existem mais no remoto
+após a reescrita.
