@@ -17,10 +17,9 @@ public class RepositorioIncidentesEfCoreTests
         .UseSqlServer("Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=Mobilidade#2026;TrustServerCertificate=true;")
         .Options;
         var contexto = new IncidentesDbContext(options);
-        var incidente = new Incidente
+        var incidente = new Incidente(DateTime.UtcNow)
         {
             Id = 0,
-            DataHora = DateTime.Now,
             Tipo = TipoIncidente.Colisao,
             Severidade = Severidade.Alta,
             BairroId = 1,

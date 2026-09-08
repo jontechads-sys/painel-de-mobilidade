@@ -17,10 +17,9 @@ public class IncidentesController : ControllerBase
     [HttpPost]
     public IActionResult Criar(CriarIncidenteRequest request)
     {
-        var incidente = new Incidente
+        var incidente = new Incidente(request.DataHora)
         {
             Id = 0,
-            DataHora = request.DataHora,
             Tipo = request.Tipo,
             Severidade = request.Severidade,
             BairroId = request.BairroId,
@@ -47,10 +46,9 @@ public class IncidentesController : ControllerBase
     [HttpPut("{id}")]
     public IActionResult Atualizar(int id, AtualizarIncidenteRequest request)
     {
-        var incidenteConvertido = new Incidente
+        var incidenteConvertido = new Incidente(request.DataHora)
         {
             Id = id,
-            DataHora = request.DataHora,
             Tipo = request.Tipo,
             Severidade = request.Severidade,
             BairroId = request.BairroId,

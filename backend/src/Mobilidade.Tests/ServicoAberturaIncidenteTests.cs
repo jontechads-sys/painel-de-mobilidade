@@ -18,10 +18,9 @@ public class ServicoAberturaIncidenteTests
         var contexto = new IncidentesDbContext(options);
         // Arrange
 
-        var incidente = new Incidente
+        var incidente = new Incidente(DateTime.UtcNow)
         {
             Id = 0,
-            DataHora = DateTime.Now,
             Tipo = TipoIncidente.Colisao,
             Severidade = Severidade.Alta,
             BairroId = 1,

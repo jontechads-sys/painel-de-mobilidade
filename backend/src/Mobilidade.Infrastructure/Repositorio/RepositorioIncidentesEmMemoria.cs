@@ -14,10 +14,9 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
     }
     public Incidente Criar(Incidente incidente)
     {
-        var incidenteFinal = new Incidente
+        var incidenteFinal = new Incidente(incidente.DataHora)
         {
             Id = _proximoId,
-            DataHora = incidente.DataHora,
             Tipo = incidente.Tipo,
             Severidade = incidente.Severidade,
             BairroId = incidente.BairroId,
@@ -42,10 +41,9 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
         {
             return null;
         }
-        var incidenteAtualizado = new Incidente
+        var incidenteAtualizado = new Incidente(incidente.DataHora)
         {
             Id = id,
-            DataHora = incidente.DataHora,
             Tipo = incidente.Tipo,
             Severidade = incidente.Severidade,
             BairroId = incidente.BairroId,

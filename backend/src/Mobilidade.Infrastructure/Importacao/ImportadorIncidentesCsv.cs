@@ -65,10 +65,9 @@ public sealed class ImportadorIncidentesCsv : IIncidenteImportador
 
             // TODO: resolver nomeBairro -> BairroId de verdade (lookup/criacao via repositorio de bairros).
             // Por enquanto usa um placeholder so para destravar a compilacao.
-            incidentes.Add(new Incidente
+            incidentes.Add(new Incidente(dataHora)
             {
                 Id = id,
-                DataHora = dataHora,
                 Tipo = tipo,
                 Severidade = severidade,
                 BairroId = 0,

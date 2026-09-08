@@ -23,10 +23,9 @@ public class RelatorioConsultasTests
             _ => $"Bairro {bairroId}"
         };
 
-        return new Incidente
+        return new Incidente(dataHora)
         {
             Id = id,
-            DataHora = dataHora,
             Tipo = tipo,
             Severidade = severidade,
             BairroId = bairroId,
