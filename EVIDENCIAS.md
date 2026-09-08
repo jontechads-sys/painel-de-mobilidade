@@ -448,3 +448,57 @@ git push --force-with-lease
 
 **Observação:** os hashes `3f9e807` e `e34e332` não existem mais no remoto
 após a reescrita.
+
+## Invariante 3: DataHora não pode ser futura
+
+### O que se quer provar
+
+Regra protegida em `src/Mobilidade.Domain/Modelos/Incidente.cs`, linha 27-28.
+Teste em `src/Mobilidade.Tests/IncidenteTests.cs`.
+
+### Comando
+
+```bash
+dotnet test --filter IncidenteTests
+```
+
+### 1. Com a proteção ativa — passa
+
+```
+[xUnit.net 00:00:01.28] Starting: Mobilidade.Tests
+[xUnit.net 00:00:03.24] Finished: Mobilidade.Tests
+Mobilidade.Tests teste net10.0 êxito (4,2s)
+
+Resumo do teste: total: 1; falhou: 0; bem-sucedido: 1; ignorado: 0; duração: 4,2s
+```
+
+
+### 2. Com o `if` e o `throw` comentados — falha
+```
+[xUnit.net 00:00:01.11] Mobilidade.Tests.IncidenteTests.Criar_ComDataHoraFutura_LancaArgumentException [FAIL]
+[xUnit.net 00:00:01.11] Assert.Throws() Failure: No exception was thrown
+[xUnit.net 00:00:01.11] Expected: typeof(System.ArgumentException)
+[xUnit.net 00:00:01.11] Stack Trace:
+[xUnit.net 00:00:01.11] IncidenteTests.cs(16,0): at Mobilidade.Tests.IncidenteTests.Criar_ComDataHoraFutura_LancaArgumentException()
+
+Resumo do teste: total: 2; falhou: 1; bem-sucedido: 1; ignorado: 0; duração: 3,2s
+```
+
+Com a proteção comentada, o incidente com data futura foi criado sem erro — o Assert.Throws reclamou de "No exception was thrown". Isso prova que o teste detecta a ausência da regra e não está passando por acaso.
+
+### 3. Com a proteção restaurada — passa de novo
+
+```
+[xUnit.net 00:00:00.17] Starting: Mobilidade.Tests
+[xUnit.net 00:00:01.36] Finished: Mobilidade.Tests
+Mobilidade.Tests teste net10.0 êxito (2,4s)
+
+Resumo do teste: total: 2; falhou: 0; bem-sucedido: 2; ignorado: 0; duração: 2,3s
+```
+
+> Saídas cortadas: removidos os avisos de build (NU1903, CS8618, CS8602) e a
+> lista de projetos compilados, que se repetem nas três execuções.
+
+### Por quê
+
+A regra vive no construtor, e não num serviço de aplicação, porque assim não existe caminho de criação que produza um incidente com data futura: qualquer new Incidente(...) passa por ela. Se a validação morasse num serviço, todo caso de uso novo teria que lembrar de chamá-lo. O private set completa a proteção — sem ele, a data poderia ser reatribuída depois da criação, desfazendo a validação.
