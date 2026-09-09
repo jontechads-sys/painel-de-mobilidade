@@ -5,6 +5,7 @@ using Mobilidade.Infrastructure.Repositorio;
 using Microsoft.Data.SqlClient;
 using Mobilidade.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Mobilidade.Infrastructure.Servicos;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +15,7 @@ builder.Services.AddProblemDetails();
 
 builder.Services.AddScoped<IIncidenteRepository, RepositorioIncidentesEfCore>();
 builder.Services.AddTransient<IIncidenteImportador, ImportadorIncidentesCsv>();
+builder.Services.AddScoped<ServicoAberturaIncidente>();
 
 builder.Services.AddDbContext<IncidentesDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));

@@ -11,15 +11,18 @@ public class ServicoAberturaIncidente
     {
         _contexto = contexto;
     }
-    public async Task<Incidente> Executar(Atendimento atendimento, Incidente incidente)
+    public async Task<Incidente> Executar(
+    DateTime dataHora,
+    Severidade severidade,
+    string orgaoResponsavel,
+    string situacao)
     {
+        var incidente = Incidente.Abrir(dataHora, severidade, orgaoResponsavel, situacao);
+
         using var transacao = await _contexto.Database.BeginTransactionAsync();
         try
         {
             _contexto.Incidentes.Add(incidente);
-            await _contexto.SaveChangesAsync();
-
-            _contexto.Atendimentos.Add(atendimento);
             await _contexto.SaveChangesAsync();
 
             await transacao.CommitAsync();

@@ -10,21 +10,14 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
 
     public RepositorioIncidentesEmMemoria()
     {
-         _incidentes = new Dictionary<int, Incidente>();
+        _incidentes = new Dictionary<int, Incidente>();
     }
     public Incidente Criar(Incidente incidente)
     {
-        var incidenteFinal = new Incidente(incidente.DataHora, incidente.Severidade)
-        {
-            Id = _proximoId,
-            Tipo = incidente.Tipo,
-            BairroId = incidente.BairroId,
-            Descricao = incidente.Descricao,
-            Bairro = incidente.Bairro
-        };
-        _incidentes[incidenteFinal.Id] = incidenteFinal;
+        incidente.Id = _proximoId;
+        _incidentes[incidente.Id] = incidente;
         _proximoId++;
-        return incidenteFinal;
+        return incidente;
     }
     public IReadOnlyList<Incidente> Listar()
     {
@@ -36,20 +29,15 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
     }
     public Incidente? Atualizar(int id, Incidente incidente)
     {
-        if (!_incidentes.ContainsKey(id))
+        if (!_incidentes.TryGetValue(id, out var existente))
         {
             return null;
         }
-        var incidenteAtualizado = new Incidente(incidente.DataHora, incidente.Severidade)
-        {
-            Id = id,
-            Tipo = incidente.Tipo,
-            BairroId = incidente.BairroId,
-            Descricao = incidente.Descricao,
-            Bairro = incidente.Bairro
-        };
-        _incidentes[id] = incidenteAtualizado;
-        return incidenteAtualizado;
+        existente.Tipo = incidente.Tipo;
+        existente.BairroId = incidente.BairroId;
+        existente.Descricao = incidente.Descricao;
+
+        return existente;
     }
     public bool Remover(int id)
     {

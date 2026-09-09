@@ -11,20 +11,22 @@ public class IncidenteTests
         // Arrange: uma data no futuro
         var dataFutura = DateTime.UtcNow.AddDays(1);
 
-
         // Act & Assert: criar o incidente com essa data deve lançar
-        Assert.Throws<ArgumentException>(() => new Incidente(dataFutura, Severidade.Alta));
+        Assert.Throws<ArgumentException>(() =>
+            Incidente.Abrir(dataFutura, Severidade.Alta, "Defesa Civil", "Em analise"));
     }
 
     [Fact]
     public void Criar_ComSeveridadeNaoTriada_LancaArgumentException()
     {
-        Assert.Throws<ArgumentException>(() => new Incidente(DateTime.UtcNow, Severidade.NaoTriada));
+        Assert.Throws<ArgumentException>(() =>
+            Incidente.Abrir(DateTime.UtcNow, Severidade.NaoTriada, "Defesa Civil", "Em analise"));
     }
 
     [Fact]
     public void Criar_ComSeveridadeForaDoEnum_LancaArgumentException()
     {
-        Assert.Throws<ArgumentException>(() => new Incidente(DateTime.UtcNow, (Severidade)99));
+        Assert.Throws<ArgumentException>(() =>
+            Incidente.Abrir(DateTime.UtcNow, (Severidade)99, "Defesa Civil", "Em analise"));
     }
 }

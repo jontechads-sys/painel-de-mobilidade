@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Mobilidade.Api.Dtos;
 using Mobilidade.Application.Repositorio;
 using Mobilidade.Domain.Modelos;
+using Mobilidade.Infrastructure.Servicos;
 
 namespace Mobilidade.Api.Controllers;
 
@@ -10,23 +11,26 @@ namespace Mobilidade.Api.Controllers;
 public class IncidentesController : ControllerBase
 {
     private readonly IIncidenteRepository _repositorio;
-    public IncidentesController(IIncidenteRepository repositorio)
+    private readonly ServicoAberturaIncidente _servicoAbertura;
+
+    public IncidentesController(IIncidenteRepository repositorio, ServicoAberturaIncidente servicoAbertura)
     {
         _repositorio = repositorio;
+        _servicoAbertura = servicoAbertura;
     }
+
     [HttpPost]
-    public IActionResult Criar(CriarIncidenteRequest request)
+    public async Task<IActionResult> Criar(CriarIncidenteRequest request)
     {
-        var incidente = new Incidente(request.DataHora, request.Severidade)
-        {
-            Id = 0,
-            Tipo = request.Tipo,
-            BairroId = request.BairroId,
-            Descricao = request.Descricao
-        };
-        var incidenteCriado = _repositorio.Criar(incidente);
+        var incidenteCriado = await _servicoAbertura.Executar(
+            request.DataHora,
+            request.Severidade,
+            request.OrgaoResponsavel,
+            request.Situacao);
+
         return CreatedAtAction(nameof(BuscarPorId), new { id = incidenteCriado.Id }, incidenteCriado);
     }
+
     [HttpGet("{id}")]
     public IActionResult BuscarPorId(int id)
     {
@@ -42,24 +46,24 @@ public class IncidentesController : ControllerBase
         var incidentes = _repositorio.Listar();
         return Ok(incidentes);
     }
+
     [HttpPut("{id}")]
     public IActionResult Atualizar(int id, AtualizarIncidenteRequest request)
     {
-        var incidenteConvertido = new Incidente(request.DataHora, request.Severidade)
-        {
-            Id = id,
-            Tipo = request.Tipo,
-            BairroId = request.BairroId,
-            Descricao = request.Descricao
-            };
-        var incidenteAtualizado = _repositorio.Atualizar(id, incidenteConvertido);
-        if (incidenteAtualizado is null)
+        var incidenteExistente = _repositorio.BuscarPorId(id);
+        if (incidenteExistente is null)
         {
             return NotFound();
         }
 
+        incidenteExistente.Tipo = request.Tipo;
+        incidenteExistente.BairroId = request.BairroId;
+        incidenteExistente.Descricao = request.Descricao;
+
+        var incidenteAtualizado = _repositorio.Atualizar(id, incidenteExistente);
         return Ok(incidenteAtualizado);
     }
+
     [HttpDelete("{id}")]
     public IActionResult Remover(int id)
     {

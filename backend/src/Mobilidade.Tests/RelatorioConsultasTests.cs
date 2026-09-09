@@ -6,12 +6,12 @@ namespace Mobilidade.Tests;
 public class RelatorioConsultasTests
 {
     private static Incidente Criar(
-        int id,
-        DateTime dataHora,
-        TipoIncidente tipo = TipoIncidente.Colisao,
-        Severidade severidade = Severidade.Baixa,
-        int bairroId = 1,
-        string? descricao = null)
+    int id,
+    DateTime dataHora,
+    TipoIncidente tipo = TipoIncidente.Colisao,
+    Severidade severidade = Severidade.Baixa,
+    int bairroId = 1,
+    string? descricao = null)
     {
         var bairroNome = bairroId switch
         {
@@ -23,14 +23,14 @@ public class RelatorioConsultasTests
             _ => $"Bairro {bairroId}"
         };
 
-        return new Incidente(dataHora, severidade)
-        {
-            Id = id,
-            Tipo = tipo,
-            BairroId = bairroId,
-            Descricao = descricao,
-            Bairro = new Bairro { Id = bairroId, Nome = bairroNome }
-        };
+        var incidente = Incidente.Abrir(dataHora, severidade, "Defesa Civil", "Em analise");
+        incidente.Id = id;
+        incidente.Tipo = tipo;
+        incidente.BairroId = bairroId;
+        incidente.Descricao = descricao;
+        incidente.Bairro = new Bairro { Id = bairroId, Nome = bairroNome };
+
+        return incidente;
     }
 
     [Fact]

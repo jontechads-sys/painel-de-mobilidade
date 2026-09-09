@@ -16,29 +16,11 @@ public class ServicoAberturaIncidenteTests
         .Options;
 
         var contexto = new IncidentesDbContext(options);
-        // Arrange
-
-        var incidente = new Incidente(DateTime.UtcNow, Severidade.Alta)
-        {
-            Id = 0,
-            Tipo = TipoIncidente.Colisao,
-            BairroId = 1,
-            Descricao = "Colisão de carros na Av Paulista 2006 - SP"
-        };
-        string orgaoInvalido = new string('*' ,101);
-
-        var atendimento = new Atendimento
-        {
-            Id = 0,
-            IncidenteId = 0,
-            OrgaoResponsavel = orgaoInvalido,
-            DataHora = DateTime.Now,
-            Situacao = "Em Análise",
-        };
-        // ... (contexto, incidente, atendimento inválido, serviço)
         var servico = new ServicoAberturaIncidente(contexto);
-        await Assert.ThrowsAsync<DbUpdateException>(async () => await servico.Executar(atendimento, incidente));
-        // Act & Assert
-        // ... (Assert.ThrowsAsync)
+
+        string orgaoInvalido = new string('*', 101);
+
+        await Assert.ThrowsAsync<DbUpdateException>(async () =>
+            await servico.Executar(DateTime.UtcNow, Severidade.Alta, orgaoInvalido, "Em Analise"));
     }
 }

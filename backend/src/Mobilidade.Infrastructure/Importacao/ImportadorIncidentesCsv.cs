@@ -35,44 +35,48 @@ public sealed class ImportadorIncidentesCsv : IIncidenteImportador
             if (campos.Length < 6)
             {
                 avisos.Add($"Linha {numeroLinha}: {campos.Length} campo(s), esperado 6 — descartada.");
-                    continue;
+                continue;
             }
 
             if (!int.TryParse(campos[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
             {
                 avisos.Add($"Linha {numeroLinha}: id '{campos[0]}' invalido — descartada.");
-                    continue;
+                continue;
             }
 
             if (!DateTime.TryParse(campos[1].Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var dataHora))
             {
                 avisos.Add($"Linha {numeroLinha}: data_hora '{campos[1]}' invalida — descartada.");
-                    continue;
+                continue;
             }
 
             if (!TryParseEnum<TipoIncidente>(campos[2], out var tipo))
             {
                 avisos.Add($"Linha {numeroLinha}: tipo '{campos[2]}' desconhecido — descartada.");
-                    continue;
+                continue;
             }
             if (!TryParseEnum<Severidade>(campos[3], out var severidade))
             {
 
                 avisos.Add($"Linha{numeroLinha}: severidade '{campos[3]}'invalida ou ausente - descartada.");
-                    continue; 
+                continue;
             }
             var nomeBairro = string.IsNullOrWhiteSpace(campos[4]) ? "(nao informado)" : campos[4].Trim();
             var descricao = string.IsNullOrWhiteSpace(campos[5]) ? null : campos[5].Trim();
 
-            // TODO: resolver nomeBairro -> BairroId de verdade (lookup/criacao via repositorio de bairros).
-            // Por enquanto usa um placeholder so para destravar a compilacao.
-            incidentes.Add(new Incidente(dataHora, severidade)
-            {
-                Id = id,
-                Tipo = tipo,
-                BairroId = 0,
-                Descricao = descricao
-            });
+            var incidente = Incidente.Abrir(
+                dataHora,
+                severidade,
+                orgaoResponsavel: "Nao informado (Importacao CSV)",
+                situacao: "Nao informado (Importacao CSV)");
+
+            incidente.Id = id;
+            incidente.Tipo = tipo;
+            incidente.BairroId = 0;
+            incidente.Descricao = descricao;
+
+            incidentes.Add(incidente);
+
         }
 
         return new ResultadoImportacao(incidentes, avisos);

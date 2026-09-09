@@ -17,14 +17,12 @@ public class RepositorioIncidentesEfCoreTests
         .UseSqlServer("Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=Mobilidade#2026;TrustServerCertificate=true;")
         .Options;
         var contexto = new IncidentesDbContext(options);
-        var incidente = new Incidente(DateTime.UtcNow,Severidade.Alta)
-        {
-            Id = 0,
-            Tipo = TipoIncidente.Colisao,
-            BairroId = 1,
-            Descricao = "Colisão de carros na Av Paulista 2006 - SP"
-        };
-        
+        var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, "Defesa Civil", "Em analise");
+        incidente.Id = 0;
+        incidente.Tipo = TipoIncidente.Colisao;
+        incidente.BairroId = 1;
+        incidente.Descricao = "Colisão de carros na Av Paulista 2006 - SP";
+
         var repositorio = new RepositorioIncidentesEfCore(contexto);
 
         var incidenteCriado = repositorio.Criar(incidente);
