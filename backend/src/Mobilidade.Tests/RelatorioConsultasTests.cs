@@ -9,7 +9,7 @@ public class RelatorioConsultasTests
         int id,
         DateTime dataHora,
         TipoIncidente tipo = TipoIncidente.Colisao,
-        Severidade severidade = Severidade.NaoTriada,
+        Severidade severidade = Severidade.Baixa,
         int bairroId = 1,
         string? descricao = null)
     {
@@ -23,11 +23,10 @@ public class RelatorioConsultasTests
             _ => $"Bairro {bairroId}"
         };
 
-        return new Incidente(dataHora)
+        return new Incidente(dataHora, severidade)
         {
             Id = id,
             Tipo = tipo,
-            Severidade = severidade,
             BairroId = bairroId,
             Descricao = descricao,
             Bairro = new Bairro { Id = bairroId, Nome = bairroNome }
@@ -54,7 +53,7 @@ public class RelatorioConsultasTests
     }
 
     [Fact]
-    public void Top3BairrosSeveridadeAlta_IgnoraIncidentesSemSeveridadeOuComOutraSeveridade()
+    public void Top3BairrosSeveridadeAlta_IgnoraIncidentesComOutraSeveridade()
     {
         var incidentes = new[]
         {
@@ -62,7 +61,6 @@ public class RelatorioConsultasTests
             Criar(2, DateTime.Today, bairroId: 2, severidade: Severidade.Alta),
             Criar(3, DateTime.Today, bairroId: 3, severidade: Severidade.Baixa),
             Criar(4, DateTime.Today, bairroId: 4, severidade: Severidade.Alta),
-            Criar(5, DateTime.Today, bairroId: 5, severidade: Severidade.NaoTriada),
         };
 
         var resultado = RelatorioConsultas.Top3BairrosSeveridadeAlta(incidentes);

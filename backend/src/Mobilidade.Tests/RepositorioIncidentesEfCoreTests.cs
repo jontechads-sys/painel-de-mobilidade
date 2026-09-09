@@ -17,11 +17,10 @@ public class RepositorioIncidentesEfCoreTests
         .UseSqlServer("Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=Mobilidade#2026;TrustServerCertificate=true;")
         .Options;
         var contexto = new IncidentesDbContext(options);
-        var incidente = new Incidente(DateTime.UtcNow)
+        var incidente = new Incidente(DateTime.UtcNow,Severidade.Alta)
         {
             Id = 0,
             Tipo = TipoIncidente.Colisao,
-            Severidade = Severidade.Alta,
             BairroId = 1,
             Descricao = "Colisão de carros na Av Paulista 2006 - SP"
         };

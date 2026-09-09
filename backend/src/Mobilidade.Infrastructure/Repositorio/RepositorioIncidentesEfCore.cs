@@ -38,7 +38,6 @@ public class RepositorioIncidentesEfCore : IIncidenteRepository
             return null;
 
         existente.Tipo = incidente.Tipo;
-        existente.Severidade = incidente.Severidade;
         existente.BairroId = incidente.BairroId;
         existente.Descricao = incidente.Descricao;
 

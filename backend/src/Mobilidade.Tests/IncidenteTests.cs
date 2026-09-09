@@ -13,6 +13,6 @@ public class IncidenteTests
 
 
         // Act & Assert: criar o incidente com essa data deve lançar
-        Assert.Throws<ArgumentException>(() => new Incidente(dataFutura));
+        Assert.Throws<ArgumentException>(() => new Incidente(dataFutura, Severidade.Alta));
     }
 }

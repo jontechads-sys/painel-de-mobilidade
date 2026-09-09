@@ -18,11 +18,10 @@ public class ServicoAberturaIncidenteTests
         var contexto = new IncidentesDbContext(options);
         // Arrange
 
-        var incidente = new Incidente(DateTime.UtcNow)
+        var incidente = new Incidente(DateTime.UtcNow, Severidade.Alta)
         {
             Id = 0,
             Tipo = TipoIncidente.Colisao,
-            Severidade = Severidade.Alta,
             BairroId = 1,
             Descricao = "Colisão de carros na Av Paulista 2006 - SP"
         };
