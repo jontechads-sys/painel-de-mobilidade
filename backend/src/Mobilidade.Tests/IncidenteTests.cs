@@ -15,4 +15,16 @@ public class IncidenteTests
         // Act & Assert: criar o incidente com essa data deve lançar
         Assert.Throws<ArgumentException>(() => new Incidente(dataFutura, Severidade.Alta));
     }
+
+    [Fact]
+    public void Criar_ComSeveridadeNaoTriada_LancaArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => new Incidente(DateTime.UtcNow, Severidade.NaoTriada));
+    }
+
+    [Fact]
+    public void Criar_ComSeveridadeForaDoEnum_LancaArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => new Incidente(DateTime.UtcNow, (Severidade)99));
+    }
 }

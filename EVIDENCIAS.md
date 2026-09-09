@@ -502,3 +502,62 @@ Resumo do teste: total: 2; falhou: 0; bem-sucedido: 2; ignorado: 0; duração: 2
 ### Por quê
 
 A regra vive no construtor, e não num serviço de aplicação, porque assim não existe caminho de criação que produza um incidente com data futura: qualquer new Incidente(...) passa por ela. Se a validação morasse num serviço, todo caso de uso novo teria que lembrar de chamá-lo. O private set completa a proteção — sem ele, a data poderia ser reatribuída depois da criação, desfazendo a validação.
+
+## Invariante 2: Severidade obrigatória e válida na criação
+
+### O que se quer provar
+
+<uma frase sua: qual é a regra>
+
+Regra protegida em `src/Mobilidade.Domain/Modelos/Incidente.cs`, dentro do
+construtor (verificações de `NaoTriada` e de valor fora do enum).
+Testes em `src/Mobilidade.Tests/IncidenteTests.cs`.
+
+### Comando
+
+```bash
+dotnet test --filter IncidenteTests
+```
+
+### 1. Com a proteção ativa — passa
+```
+[xUnit.net 00:00:00.21] Starting: Mobilidade.Tests
+[xUnit.net 00:00:01.60] Finished: Mobilidade.Tests
+Mobilidade.Tests teste net10.0 êxito (2,6s)
+
+Resumo do teste: total: 4; falhou: 0; bem-sucedido: 4; ignorado: 0; duração: 2,6s
+```
+
+### 2. Com as duas verificações comentadas — falha
+```
+[xUnit.net 00:00:00.85] Mobilidade.Tests.IncidenteTests.Criar_ComSeveridadeNaoTriada_LancaArgumentException [FAIL]
+[xUnit.net 00:00:00.86] Assert.Throws() Failure: No exception was thrown
+[xUnit.net 00:00:00.86] Expected: typeof(System.ArgumentException)
+
+[xUnit.net 00:00:00.88] Mobilidade.Tests.IncidenteTests.Criar_ComSeveridadeForaDoEnum_LancaArgumentException [FAIL]
+[xUnit.net 00:00:00.88] Assert.Throws() Failure: No exception was thrown
+[xUnit.net 00:00:00.88] Expected: typeof(System.ArgumentException)
+
+Resumo do teste: total: 4; falhou: 2; bem-sucedido: 2; ignorado: 0; duração: 3,1s
+```
+
+
+Essa falha prova que o Incidente não pode nascer sem um valor atribuido em Severidade.
+
+### 3. Com a proteção restaurada — passa de novo
+``` 
+[xUnit.net 00:00:00.21] Starting: Mobilidade.Tests
+[xUnit.net 00:00:01.60] Finished: Mobilidade.Tests
+Mobilidade.Tests teste net10.0 êxito (2,6s)
+
+Resumo do teste: total: 4; falhou: 0; bem-sucedido: 4; ignorado: 0; duração: 2,6s
+```
+
+> Saídas cortadas: removidos os avisos de build (NU1903, CS8618) e a lista
+> de projetos compilados, que se repetem nas execuções.
+
+### Por quê
+
+O construtor de Incidente é oq define o nascimento dele e essas verficações e validações precisam está dentro dele já que o mesmo nescessita de severidades válidas para nascer.
+NaoTriada é rejeitada por ser um 'Severidade = null' disfarçado com valor.
+Valor fora do enum não passa, por ser lixo estrutural (Não é um valor de negócio e sim corrupção de dado).
