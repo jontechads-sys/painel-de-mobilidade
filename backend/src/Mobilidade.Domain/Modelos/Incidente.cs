@@ -40,7 +40,8 @@ public sealed class Incidente
     public string? Descricao { get; set; }
 
     public Bairro? Bairro { get; set; }
-    public ICollection<Atendimento> Atendimentos { get; set; } = new List<Atendimento>();
+    private readonly List<Atendimento> _atendimentos = new();
+    public IReadOnlyCollection<Atendimento> Atendimentos => _atendimentos;
 
     public static Incidente Abrir(
         DateTime dataHora,
@@ -58,10 +59,36 @@ public sealed class Incidente
             Situacao = situacao,
             Incidente = incidente
         };
-        incidente.Atendimentos.Add(atendimento);
+        incidente._atendimentos.Add(atendimento);
         return incidente;
 
     }
+    public bool Encerrado { get; private set; }
 
+    public void Encerrar()
+    {
+        if (Encerrado)
+        {
+            throw new InvalidOperationException("Incidente já foi encerrado");
+        }
+        Encerrado = true;
+    }
+    public void RegistrarAtendimento(DateTime dataHora, string orgaoResponsavel, string situacao)
+    {
+        if (Encerrado)
+        {
+            throw new InvalidOperationException("Incidente encerrado não aceita novo atendimento.");
+        }
+        var atendimento = new Atendimento
+        {
+            IncidenteId = Id,
+            OrgaoResponsavel = orgaoResponsavel,
+            DataHora = dataHora,
+            Situacao = situacao,
+            Incidente = this
+
+        };
+        _atendimentos.Add(atendimento);
+    }
 
 }
