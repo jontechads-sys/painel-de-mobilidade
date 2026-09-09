@@ -51,4 +51,11 @@ public class IncidenteTests
         Assert.Throws<InvalidOperationException>(() =>
             incidente.RegistrarAtendimento(DateTime.UtcNow, "Bombeiros", "A caminho"));
     }
+    [Fact]
+    public void Abrir_SempreCriaComPeloMenosUmAtendimento()
+    {
+        var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, "Defesa Civil", "Em analise");
+
+        Assert.Single(incidente.Atendimentos);
+    }
 }

@@ -561,3 +561,107 @@ Resumo do teste: total: 4; falhou: 0; bem-sucedido: 4; ignorado: 0; duração: 2
 O construtor de Incidente é oq define o nascimento dele e essas verficações e validações precisam está dentro dele já que o mesmo nescessita de severidades válidas para nascer.
 NaoTriada é rejeitada por ser um 'Severidade = null' disfarçado com valor.
 Valor fora do enum não passa, por ser lixo estrutural (Não é um valor de negócio e sim corrupção de dado).
+
+## Migration: AdicionaEncerradoAoIncidente
+
+### Contexto
+
+A invariante 4 exige estado de encerramento no `Incidente`. Nova propriedade
+`Encerrado` (bool), com `private set`, protegida pelos métodos `Encerrar()`
+e `RegistrarAtendimento()`.
+
+### Comando
+
+```bash
+dotnet ef migrations add AdicionaEncerradoAoIncidente -s src/Mobilidade.Api -p src/Mobilidade.Infrastructure
+```
+
+### Migration gerada
+
+```csharp
+protected override void Up(MigrationBuilder migrationBuilder)
+{
+    migrationBuilder.AddColumn<bool>(
+        name: "Encerrado",
+        table: "Incidentes",
+        type: "bit",
+        nullable: false,
+        defaultValue: false);
+}
+
+protected override void Down(MigrationBuilder migrationBuilder)
+{
+    migrationBuilder.DropColumn(
+        name: "Encerrado",
+        table: "Incidentes");
+}
+```
+
+### Aplicando ao banco
+
+```bash
+dotnet ef database update -s src/Mobilidade.Api -p src/Mobilidade.Infrastructure
+```
+
+```
+20260902183546_CreateIncidentesAndBairros
+20260903185136_AtendimentoTable
+20260903212651_SeveridadeObrigatoria
+20260909181119_AdicionaEncerradoAoIncidente
+```
+
+A migration aparece no `__EFMigrationsHistory`, confirmando que está aplicada.
+
+### Por quê
+
+
+defaultValue: false marca os incidentes legados como abertos, mesmo sem saber o estado real deles. 
+Essa escolha é reversível: se um incidente já estava resolvido, basta chamar Encerrar() nele. 
+A alternativa — assumir encerrado — seria irreversível na prática, porque a invariante 4 bloqueia RegistrarAtendimento em incidentes encerrados; 
+um incidente ainda ativo marcado como encerrado por engano ficaria travado sem poder receber atendimento novo.
+
+## Invariante 1: Incidente nasce com pelo menos um Atendimento
+
+### O que se quer provar
+
+Prova que todo `Incidente` criado tem pelo menos um `Atendimento` associado
+desde o nascimento.
+
+Regra protegida estruturalmente: o construtor de `Incidente` é `private`
+(`src/Mobilidade.Domain/Modelos/Incidente.cs`). O único caminho de criação
+é o factory method `Incidente.Abrir(...)`, que monta o `Atendimento`
+inicial antes de devolver o objeto.
+Teste em `src/Mobilidade.Tests/IncidenteTests.cs`.
+
+### Comando
+
+```bash
+dotnet test --filter IncidenteTests
+```
+
+### Resultado
+
+```
+Resumo do teste: total: 7; falhou: 0; bem-sucedido: 7; ignorado: 0; duração: 3,8s
+```
+
+
+### Por que não há ciclo comentar/falhar/descomentar aqui
+
+Nas invariantes 2 e 3, a prova é por **tentativa de violação**: o teste
+tenta criar um estado inválido e espera uma exceção; comentar a checagem
+faz o teste falhar, provando que ele detecta a ausência da regra.
+
+A invariante 1 é protegida de outra forma: como o construtor de `Incidente`
+é `private`, não existe nenhum código possível — nem um teste — que consiga
+tentar `new Incidente(...)` sem passar por `Abrir`. A violação não é
+apenas rejeitada em runtime, ela é **impossível de compilar**. Não há
+linha de `if/throw` para comentar porque a proteção não é uma checagem,
+é a ausência de qualquer caminho alternativo.
+
+O teste `Abrir_SempreCriaComPeloMenosUmAtendimento` prova o lado positivo:
+que o único caminho existente sempre cumpre a regra.
+
+### Por quê
+
+Antes, a garantia dependia de todo código que criasse um Incidente passar pelo ServicoAberturaIncidente. Isso não era protegido de verdade: o RepositorioIncidentesEmMemoria e o ImportadorIncidentesCsv criavam incidentes direto, sem atendimento, e ninguém percebia até o build quebrar depois da mudança. Com o construtor private, essa dependência de disciplina desaparece — não existe caminho de criação fora de Abrir
