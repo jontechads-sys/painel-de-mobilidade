@@ -35,31 +35,32 @@ public sealed class ImportadorIncidentesCsv : IIncidenteImportador
             if (campos.Length < 6)
             {
                 avisos.Add($"Linha {numeroLinha}: {campos.Length} campo(s), esperado 6 — descartada.");
-                continue;
+                    continue;
             }
 
             if (!int.TryParse(campos[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
             {
                 avisos.Add($"Linha {numeroLinha}: id '{campos[0]}' invalido — descartada.");
-                continue;
+                    continue;
             }
 
             if (!DateTime.TryParse(campos[1].Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var dataHora))
             {
                 avisos.Add($"Linha {numeroLinha}: data_hora '{campos[1]}' invalida — descartada.");
-                continue;
+                    continue;
             }
 
             if (!TryParseEnum<TipoIncidente>(campos[2], out var tipo))
             {
                 avisos.Add($"Linha {numeroLinha}: tipo '{campos[2]}' desconhecido — descartada.");
-                continue;
+                    continue;
             }
+            if (!TryParseEnum<Severidade>(campos[3], out var severidade))
+            {
 
-            Severidade severidade = TryParseEnum<Severidade>(campos[3], out var severidadeValor)
-                ? severidadeValor
-                : Severidade.NaoTriada;
-
+                avisos.Add($"Linha{numeroLinha}: severidade '{campos[3]}'invalida ou ausente - descartada.");
+                    continue; 
+            }
             var nomeBairro = string.IsNullOrWhiteSpace(campos[4]) ? "(nao informado)" : campos[4].Trim();
             var descricao = string.IsNullOrWhiteSpace(campos[5]) ? null : campos[5].Trim();
 
