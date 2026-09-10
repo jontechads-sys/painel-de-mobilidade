@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Mobilidade.Api.Dtos;
 using Mobilidade.Application.Repositorio;
 using Mobilidade.Domain.Modelos;
-using Mobilidade.Infrastructure.Servicos;
+using Mobilidade.Application.CasosDeUso;
 
 namespace Mobilidade.Api.Controllers;
 
@@ -11,20 +11,25 @@ namespace Mobilidade.Api.Controllers;
 public class IncidentesController : ControllerBase
 {
     private readonly IIncidenteRepository _repositorio;
-    private readonly ServicoAberturaIncidente _servicoAbertura;
+    private readonly AbrirIncidente _abrirIncidente;
+    private readonly EncerrarIncidente _encerrarIncidente;
+    private readonly RegistrarAtendimento _registrarAtendimento;
 
-    public IncidentesController(IIncidenteRepository repositorio, ServicoAberturaIncidente servicoAbertura)
+    public IncidentesController(IIncidenteRepository repositorio, AbrirIncidente servicoAbertura, EncerrarIncidente encerrarIncidente, RegistrarAtendimento registrarAtendimento)
     {
         _repositorio = repositorio;
-        _servicoAbertura = servicoAbertura;
+        _abrirIncidente = servicoAbertura;
+        _encerrarIncidente = encerrarIncidente;
+        _registrarAtendimento = registrarAtendimento;
     }
-
     [HttpPost]
-    public async Task<IActionResult> Criar(CriarIncidenteRequest request)
+    public IActionResult Criar(CriarIncidenteRequest request)
     {
-        var incidenteCriado = await _servicoAbertura.Executar(
+        var incidenteCriado = _abrirIncidente.Executar(
             request.DataHora,
             request.Severidade,
+            request.BairroId,
+            request.Descricao,
             request.OrgaoResponsavel,
             request.Situacao);
 
@@ -74,5 +79,41 @@ public class IncidentesController : ControllerBase
             return NotFound();
         }
         return NoContent();
+    }
+    [HttpPost("{id}/encerrar")]
+    public IActionResult Encerrar(int id)
+    {
+        try
+        {
+            var incidente = _encerrarIncidente.Executar(id);
+            return Ok(incidente);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
+
+    [HttpPost("{id}/atendimentos")]
+    public IActionResult RegistrarAtendimento(int id, RegistrarAtendimentoRequest request)
+    {
+        try
+        {
+            var incidente = _registrarAtendimento.Executar(
+                id, request.DataHora, request.OrgaoResponsavel, request.Situacao);
+            return Ok(incidente);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
     }
 }

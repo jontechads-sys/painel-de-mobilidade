@@ -46,10 +46,16 @@ public sealed class Incidente
     public static Incidente Abrir(
         DateTime dataHora,
         Severidade severidade,
+        int bairroId,
+        string? descricao,
         string orgaoResponsavel,
         string situacao)
     {
-        var incidente = new Incidente(dataHora, severidade);
+        var incidente = new Incidente(dataHora, severidade)
+        {
+            BairroId = bairroId,
+            Descricao = descricao
+        };
 
         var atendimento = new Atendimento
         {

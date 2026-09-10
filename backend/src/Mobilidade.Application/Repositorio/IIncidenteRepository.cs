@@ -9,6 +9,7 @@ namespace Mobilidade.Application.Repositorio
         IReadOnlyList<Incidente> Listar();
         Incidente? BuscarPorId(int id);
         Incidente? Atualizar(int id, Incidente incidente);
+        Incidente Salvar(Incidente incidente);
         bool Remover(int id);
     }
 }

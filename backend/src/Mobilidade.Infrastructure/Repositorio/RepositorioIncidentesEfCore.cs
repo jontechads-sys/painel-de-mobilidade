@@ -55,4 +55,9 @@ public class RepositorioIncidentesEfCore : IIncidenteRepository
         _contexto.SaveChanges();
         return true;
     }
+    public Incidente Salvar(Incidente incidente)
+    {
+        _contexto.SaveChanges();
+        return incidente;
+    }
 }

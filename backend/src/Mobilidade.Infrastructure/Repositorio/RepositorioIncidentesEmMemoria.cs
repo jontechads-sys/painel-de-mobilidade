@@ -43,5 +43,9 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
     {
         return _incidentes.Remove(id);
     }
-
+    public Incidente Salvar(Incidente incidente)
+    {
+        _incidentes[incidente.Id] = incidente;
+        return incidente;
+    }
 }

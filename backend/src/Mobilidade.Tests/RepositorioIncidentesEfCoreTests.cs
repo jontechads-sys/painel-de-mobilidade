@@ -2,7 +2,6 @@ using Mobilidade.Domain.Modelos;
 using Mobilidade.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
-using Mobilidade.Infrastructure.Servicos;
 using Mobilidade.Infrastructure.Repositorio;
 
 namespace Mobilidade.Tests;
@@ -16,11 +15,15 @@ public class RepositorioIncidentesEfCoreTests
         .UseSqlServer(TestesConfig.ConnectionString)
         .Options;
         var contexto = new IncidentesDbContext(options);
-        var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, "Defesa Civil", "Em analise");
+        var incidente = Incidente.Abrir(
+            DateTime.UtcNow, 
+            Severidade.Alta, 
+            bairroId: 1,
+            descricao: "Colisão de carros na Av Paulista 2006 - SP", 
+            orgaoResponsavel: "Defesa Civil", 
+            situacao: "Em analise");
         incidente.Id = 0;
         incidente.Tipo = TipoIncidente.Colisao;
-        incidente.BairroId = 1;
-        incidente.Descricao = "Colisão de carros na Av Paulista 2006 - SP";
 
         var repositorio = new RepositorioIncidentesEfCore(contexto);
 

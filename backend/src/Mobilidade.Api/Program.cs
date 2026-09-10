@@ -5,17 +5,20 @@ using Mobilidade.Infrastructure.Repositorio;
 using Microsoft.Data.SqlClient;
 using Mobilidade.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using Mobilidade.Infrastructure.Servicos;
+using Mobilidade.Application.CasosDeUso;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles);
 builder.Services.AddOpenApi();
-builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 
 builder.Services.AddScoped<IIncidenteRepository, RepositorioIncidentesEfCore>();
 builder.Services.AddTransient<IIncidenteImportador, ImportadorIncidentesCsv>();
-builder.Services.AddScoped<ServicoAberturaIncidente>();
+//builder.Services.AddScoped<ServicoAberturaIncidente>();
+builder.Services.AddScoped<AbrirIncidente>();
+builder.Services.AddScoped<EncerrarIncidente>();
+builder.Services.AddScoped<RegistrarAtendimento>();
 
 builder.Services.AddDbContext<IncidentesDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));

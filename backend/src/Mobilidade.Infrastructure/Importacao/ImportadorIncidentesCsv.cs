@@ -64,16 +64,19 @@ public sealed class ImportadorIncidentesCsv : IIncidenteImportador
             var nomeBairro = string.IsNullOrWhiteSpace(campos[4]) ? "(nao informado)" : campos[4].Trim();
             var descricao = string.IsNullOrWhiteSpace(campos[5]) ? null : campos[5].Trim();
 
+            // TODO: resolver nomeBairro -> BairroId real (dívida registrada em DECISOES.md).
+            // Por enquanto usa 0 como placeholder, o que falha na FK se não existir
+            // Bairro com Id = 0 no banco (dívida conhecida, não bloqueante para a semana 5).
             var incidente = Incidente.Abrir(
                 dataHora,
                 severidade,
+                bairroId: 0,
+                descricao: descricao,
                 orgaoResponsavel: "Nao informado (Importacao CSV)",
                 situacao: "Nao informado (Importacao CSV)");
 
             incidente.Id = id;
             incidente.Tipo = tipo;
-            incidente.BairroId = 0;
-            incidente.Descricao = descricao;
 
             incidentes.Add(incidente);
 

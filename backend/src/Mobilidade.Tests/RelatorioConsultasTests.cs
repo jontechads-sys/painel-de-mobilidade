@@ -23,11 +23,9 @@ public class RelatorioConsultasTests
             _ => $"Bairro {bairroId}"
         };
 
-        var incidente = Incidente.Abrir(dataHora, severidade, "Defesa Civil", "Em analise");
+        var incidente = Incidente.Abrir(dataHora, severidade, bairroId, descricao, "Defesa Civil", "Em analise");
         incidente.Id = id;
         incidente.Tipo = tipo;
-        incidente.BairroId = bairroId;
-        incidente.Descricao = descricao;
         incidente.Bairro = new Bairro { Id = bairroId, Nome = bairroNome };
 
         return incidente;
