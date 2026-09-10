@@ -55,7 +55,7 @@ public sealed class ImportadorIncidentesCsv : IIncidenteImportador
                 avisos.Add($"Linha {numeroLinha}: tipo '{campos[2]}' desconhecido — descartada.");
                 continue;
             }
-            if (!TryParseEnum<Severidade>(campos[3], out var severidade))
+            if (!Severidade.TryParse(campos[3], out var severidade))
             {
 
                 avisos.Add($"Linha{numeroLinha}: severidade '{campos[3]}'invalida ou ausente - descartada.");

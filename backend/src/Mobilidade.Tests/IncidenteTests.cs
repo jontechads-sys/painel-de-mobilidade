@@ -20,14 +20,6 @@ public class IncidenteTests
         Assert.Throws<ArgumentException>(() =>
             Incidente.Abrir(DateTime.UtcNow, Severidade.NaoTriada, 1, "teste", "Defesa Civil", "Em analise"));
     }
-
-    [Fact]
-    public void Criar_ComSeveridadeForaDoEnum_LancaArgumentException()
-    {
-        Assert.Throws<ArgumentException>(() =>
-            Incidente.Abrir(DateTime.UtcNow, (Severidade)99, 1, "teste", "Defesa Civil", "Em analise"));
-    }
-
     [Fact]
     public void Encerrar_QuandoIncidenteJaEstiverEncerrado_LancaInvalidOperationException()
     {

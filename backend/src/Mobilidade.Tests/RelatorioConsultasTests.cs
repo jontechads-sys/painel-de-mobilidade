@@ -9,10 +9,12 @@ public class RelatorioConsultasTests
     int id,
     DateTime dataHora,
     TipoIncidente tipo = TipoIncidente.Colisao,
-    Severidade severidade = Severidade.Baixa,
+    Severidade? severidade = null,
     int bairroId = 1,
     string? descricao = null)
     {
+        var severidadeReal = severidade ?? Severidade.Baixa;
+
         var bairroNome = bairroId switch
         {
             1 => "Centro",
@@ -23,7 +25,7 @@ public class RelatorioConsultasTests
             _ => $"Bairro {bairroId}"
         };
 
-        var incidente = Incidente.Abrir(dataHora, severidade, bairroId, descricao, "Defesa Civil", "Em analise");
+        var incidente = Incidente.Abrir(dataHora, severidadeReal, bairroId, descricao, "Defesa Civil", "Em analise");
         incidente.Id = id;
         incidente.Tipo = tipo;
         incidente.Bairro = new Bairro { Id = bairroId, Nome = bairroNome };

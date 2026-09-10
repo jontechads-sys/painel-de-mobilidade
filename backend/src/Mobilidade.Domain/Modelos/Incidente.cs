@@ -9,15 +9,6 @@ public enum TipoIncidente
     SemaforoApagado,
     Engarrafamento
 }
-
-public enum Severidade
-{
-    Baixa,
-    Media,
-    Alta,
-    NaoTriada
-}
-
 public sealed class Incidente
 {
     public int Id { get; set; }
@@ -28,8 +19,6 @@ public sealed class Incidente
             throw new ArgumentException("DataHora não pode ser futura.", nameof(dataHora));
         DataHora = dataHora;
 
-        if (!Enum.IsDefined(severidade))
-            throw new ArgumentException("Esse valor não corresponde a lista de Severidades.", nameof(severidade));
         if (severidade == Severidade.NaoTriada)
             throw new ArgumentException("Severidade Ausente", nameof(severidade));
         Severidade = severidade;

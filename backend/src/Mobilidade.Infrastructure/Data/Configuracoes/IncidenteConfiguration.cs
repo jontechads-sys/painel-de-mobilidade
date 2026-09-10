@@ -16,6 +16,12 @@ public class IncidenteConfiguration : IEntityTypeConfiguration<Incidente>
         builder.Property(i => i.Tipo)
             .IsRequired();
 
+        builder.Property(i => i.Severidade)
+            .HasConversion(
+                severidade => severidade.Valor,
+                valor => Severidade.DeInt(valor))
+            .IsRequired();
+
         builder.Property(i => i.Descricao)
             .IsRequired(false);
 
