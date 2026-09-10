@@ -424,9 +424,8 @@ o último fetch, evitando sobrescrever trabalho de terceiros.
 
 **Comando:**
 ```
-git push --force-with-lease 
+git push --force-with-lease
 ```
-
 
 **Confirmação:** no `git log` acima, `origin/semana-05` aparece junto de
 `HEAD`, ou seja, o remoto está no mesmo commit que o local.
@@ -472,8 +471,8 @@ Mobilidade.Tests teste net10.0 êxito (4,2s)
 Resumo do teste: total: 1; falhou: 0; bem-sucedido: 1; ignorado: 0; duração: 4,2s
 ```
 
-
 ### 2. Com o `if` e o `throw` comentados — falha
+
 ```
 [xUnit.net 00:00:01.11] Mobilidade.Tests.IncidenteTests.Criar_ComDataHoraFutura_LancaArgumentException [FAIL]
 [xUnit.net 00:00:01.11] Assert.Throws() Failure: No exception was thrown
@@ -507,7 +506,8 @@ A regra vive no construtor, e não num serviço de aplicação, porque assim nã
 
 ### O que se quer provar
 
-<uma frase sua: qual é a regra>
+Prova que um incidente não pode ser criado com severidade `NaoTriada` ou
+com valor fora do enum.
 
 Regra protegida em `src/Mobilidade.Domain/Modelos/Incidente.cs`, dentro do
 construtor (verificações de `NaoTriada` e de valor fora do enum).
@@ -520,6 +520,7 @@ dotnet test --filter IncidenteTests
 ```
 
 ### 1. Com a proteção ativa — passa
+
 ```
 [xUnit.net 00:00:00.21] Starting: Mobilidade.Tests
 [xUnit.net 00:00:01.60] Finished: Mobilidade.Tests
@@ -529,6 +530,7 @@ Resumo do teste: total: 4; falhou: 0; bem-sucedido: 4; ignorado: 0; duração: 2
 ```
 
 ### 2. Com as duas verificações comentadas — falha
+
 ```
 [xUnit.net 00:00:00.85] Mobilidade.Tests.IncidenteTests.Criar_ComSeveridadeNaoTriada_LancaArgumentException [FAIL]
 [xUnit.net 00:00:00.86] Assert.Throws() Failure: No exception was thrown
@@ -541,11 +543,14 @@ Resumo do teste: total: 4; falhou: 0; bem-sucedido: 4; ignorado: 0; duração: 2
 Resumo do teste: total: 4; falhou: 2; bem-sucedido: 2; ignorado: 0; duração: 3,1s
 ```
 
-
-Essa falha prova que o Incidente não pode nascer sem um valor atribuido em Severidade.
+Com as duas verificações comentadas, tanto `NaoTriada` quanto um valor fora
+do enum foram aceitos pelo construtor sem erro. Isso prova que os dois
+testes detectam a ausência de cada regra especificamente, e não estão
+passando por acaso.
 
 ### 3. Com a proteção restaurada — passa de novo
-``` 
+
+```
 [xUnit.net 00:00:00.21] Starting: Mobilidade.Tests
 [xUnit.net 00:00:01.60] Finished: Mobilidade.Tests
 Mobilidade.Tests teste net10.0 êxito (2,6s)
@@ -558,9 +563,11 @@ Resumo do teste: total: 4; falhou: 0; bem-sucedido: 4; ignorado: 0; duração: 2
 
 ### Por quê
 
-O construtor de Incidente é oq define o nascimento dele e essas verficações e validações precisam está dentro dele já que o mesmo nescessita de severidades válidas para nascer.
-NaoTriada é rejeitada por ser um 'Severidade = null' disfarçado com valor.
-Valor fora do enum não passa, por ser lixo estrutural (Não é um valor de negócio e sim corrupção de dado).
+O construtor de Incidente é o que define o nascimento dele, e essas
+verificações precisam estar dentro dele já que o objeto necessita de
+severidade válida para nascer. `NaoTriada` é rejeitada por ser um
+"Severidade = null" disfarçado com valor. Valor fora do enum não passa por
+ser lixo estrutural — não é um valor de negócio, é corrupção de dado.
 
 ## Migration: AdicionaEncerradoAoIncidente
 
@@ -603,6 +610,12 @@ protected override void Down(MigrationBuilder migrationBuilder)
 dotnet ef database update -s src/Mobilidade.Api -p src/Mobilidade.Infrastructure
 ```
 
+Confirmação via `dotnet ef migrations list`:
+
+```bash
+dotnet ef migrations list -s src/Mobilidade.Api -p src/Mobilidade.Infrastructure
+```
+
 ```
 20260902183546_CreateIncidentesAndBairros
 20260903185136_AtendimentoTable
@@ -614,11 +627,13 @@ A migration aparece no `__EFMigrationsHistory`, confirmando que está aplicada.
 
 ### Por quê
 
-
-defaultValue: false marca os incidentes legados como abertos, mesmo sem saber o estado real deles. 
-Essa escolha é reversível: se um incidente já estava resolvido, basta chamar Encerrar() nele. 
-A alternativa — assumir encerrado — seria irreversível na prática, porque a invariante 4 bloqueia RegistrarAtendimento em incidentes encerrados; 
-um incidente ainda ativo marcado como encerrado por engano ficaria travado sem poder receber atendimento novo.
+`defaultValue: false` marca os incidentes legados como abertos, mesmo sem
+saber o estado real deles. Essa escolha é reversível: se um incidente já
+estava resolvido, basta chamar `Encerrar()` nele. A alternativa — assumir
+encerrado — seria irreversível na prática, porque a invariante 4 bloqueia
+`RegistrarAtendimento` em incidentes encerrados; um incidente ainda ativo
+marcado como encerrado por engano ficaria travado sem poder receber
+atendimento novo.
 
 ## Invariante 1: Incidente nasce com pelo menos um Atendimento
 
@@ -645,7 +660,6 @@ dotnet test --filter IncidenteTests
 Resumo do teste: total: 7; falhou: 0; bem-sucedido: 7; ignorado: 0; duração: 3,8s
 ```
 
-
 ### Por que não há ciclo comentar/falhar/descomentar aqui
 
 Nas invariantes 2 e 3, a prova é por **tentativa de violação**: o teste
@@ -664,10 +678,12 @@ que o único caminho existente sempre cumpre a regra.
 
 ### Por quê
 
-Antes, a garantia dependia de todo código que criasse um Incidente passar pelo ServicoAberturaIncidente. 
-Isso não era protegido de verdade: 
-o RepositorioIncidentesEmMemoria e o ImportadorIncidentesCsv criavam incidentes direto, sem atendimento, e ninguém percebia até o build quebrar depois da mudança.
-Com o construtor private, essa dependência de disciplina desaparece — não existe caminho de criação fora de Abrir.
+Antes, a garantia dependia de todo código que criasse um Incidente passar
+pelo `ServicoAberturaIncidente`. Isso não era protegido de verdade: o
+`RepositorioIncidentesEmMemoria` e o `ImportadorIncidentesCsv` criavam
+incidentes direto, sem atendimento, e ninguém percebia até o build quebrar
+depois da mudança. Com o construtor `private`, essa dependência de
+disciplina desaparece — não existe caminho de criação fora de `Abrir`.
 
 ## Domain sem dependência de Application/Infrastructure
 
@@ -688,7 +704,10 @@ dotnet list src/Mobilidade.Domain reference
 ```
 Não há nenhuma referência Projeto para Projeto no projeto src/Mobilidade.Domain.
 ```
-Nenhuma referência listada - 'Domain' depende apenas do propio .NET.
+
+Nenhuma referência listada — `Domain` depende apenas do próprio .NET.
+
+---
 
 ## Regras movidas — Semana 5
 
@@ -699,8 +718,8 @@ não pode existir incidente órfão, sem nenhum atendimento associado.
 
 **Onde estava (antes):** `ServicoAberturaIncidente.Executar`, em
 `src/Mobilidade.Infrastructure/Servicos/ServicoAberturaIncidente.cs`,
-commit `cfddb83`. A regra era garantida por uma **transação manual**:
-incidente e atendimento eram salvos em dois `SaveChangesAsync()`
+linha 19, commit `cfddb83`. A regra era garantida por uma **transação
+manual**: incidente e atendimento eram salvos em dois `SaveChangesAsync()`
 separados, com rollback se o segundo falhasse — mas nada impedia que
 outro código criasse um `Incidente` sem nunca passar por esse serviço.
 
@@ -728,9 +747,9 @@ public async Task<Incidente> Executar(Atendimento atendimento, Incidente inciden
 ```
 
 **Onde está agora:** `Incidente.Abrir(...)`, factory method estático em
-`src/Mobilidade.Domain/Modelos/Incidente.cs`. O construtor de `Incidente`
-é `private` — não existe caminho de criação fora de `Abrir`, e `Abrir`
-sempre monta o `Atendimento` inicial antes de devolver o objeto.
+`src/Mobilidade.Domain/Modelos/Incidente.cs`, linha 46. O construtor de
+`Incidente` é `private` — não existe caminho de criação fora de `Abrir`, e
+`Abrir` sempre monta o `Atendimento` inicial antes de devolver o objeto.
 `AbrirIncidente.Executar`, em
 `src/Mobilidade.Application/CasosDeUso/AbrirIncidente.cs`, chama `Abrir`
 e persiste com um único `SaveChanges()`.
@@ -750,8 +769,9 @@ aconteceu — não é um dado editável depois de registrado.
 
 **Onde estava (antes):** `RepositorioIncidentesEfCore.Atualizar`, em
 `src/Mobilidade.Infrastructure/Repositorio/RepositorioIncidentesEfCore.cs`,
-commit `08b4033` (criação original) até `c19cb5b`. O método sincronizava
-o campo livremente a partir do objeto recebido:
+linha 40, presente desde o commit `08b4033` (criação original) até o
+commit `c19cb5b`. O método sincronizava o campo livremente a partir do
+objeto recebido:
 
 ```csharp
 existente.DataHora = incidente.DataHora;
@@ -761,10 +781,10 @@ Nada impedia que uma chamada a `Atualizar` reescrevesse quando o
 incidente aconteceu.
 
 **Onde está agora:** `DataHora` tem `private set` em
-`src/Mobilidade.Domain/Modelos/Incidente.cs`. Só é atribuída dentro do
-construtor, na criação. A linha foi removida do `Atualizar` no commit
-`c19cb5b`, e o C# não compila mais uma tentativa de reatribuição de fora
-da classe.
+`src/Mobilidade.Domain/Modelos/Incidente.cs`, linha 24. Só é atribuída
+dentro do construtor, na criação. A linha foi removida do `Atualizar` no
+commit `c19cb5b`, e o C# não compila mais uma tentativa de reatribuição
+de fora da classe.
 
 **Por quê:** um incidente registra o que aconteceu. Se `DataHora` pudesse
 mudar depois, o registro deixaria de ser confiável como histórico —
@@ -780,8 +800,8 @@ não uma atribuição livre.
 
 **Onde estava (antes):** `RepositorioIncidentesEfCore.Atualizar`, em
 `src/Mobilidade.Infrastructure/Repositorio/RepositorioIncidentesEfCore.cs`,
-presente desde `08b4033` até `c19cb5b`. O método sincronizava o campo
-livremente:
+linha 42, presente desde o commit `08b4033` até o commit `a606eff`. O
+método sincronizava o campo livremente:
 
 ```csharp
 existente.Severidade = incidente.Severidade;
@@ -791,8 +811,8 @@ Qualquer chamada a `Atualizar` conseguia reescrever a severidade, sem
 nenhuma validação ou rastro de que ela mudou.
 
 **Onde está agora:** `Severidade` tem `private set` em
-`src/Mobilidade.Domain/Modelos/Incidente.cs`, atribuída só no construtor.
-A linha foi removida do `Atualizar` no commit `a606eff`.
+`src/Mobilidade.Domain/Modelos/Incidente.cs`, linha 38, atribuída só no
+construtor. A linha foi removida do `Atualizar` no commit `a606eff`.
 
 **Por quê:** se a situação de um incidente mudou a ponto de justificar
 outra severidade, isso é informação nova sobre o mesmo incidente — o
@@ -800,6 +820,8 @@ lugar certo para ela é um novo `Atendimento` registrado, não uma
 sobrescrita do valor original. Sobrescrever apaga o fato de que, no
 momento da abertura, aquela foi a avaliação feita. Reclassificar apaga
 histórico; registrar um atendimento novo o preserva.
+
+---
 
 ## Regressão — refatoração de camadas (Semana 5)
 
@@ -817,7 +839,7 @@ dotnet test
 ```
 
 ```
-Resumo do teste: total: 14; falhou: 0; bem-sucedido: 14; ignorado: 0;
+Resumo do teste: total: 14; falhou: 0; bem-sucedido: 14; ignorado: 0;
 ```
 
 ### Depois da refatoração
@@ -825,8 +847,9 @@ Resumo do teste: total: 14; falhou: 0; bem-sucedido: 14; ignorado: 0;
 ```bash
 dotnet test
 ```
+
 ```
-Resumo do teste: total: 13; falhou: 0; bem-sucedido: 13; ignorado: 0; duração: 4,6s
+Resumo do teste: total: 13; falhou: 0; bem-sucedido: 13; ignorado: 0; duração: 4,6s
 Construir êxito(s) com 5 aviso(s) em 11,5s
 ```
 
