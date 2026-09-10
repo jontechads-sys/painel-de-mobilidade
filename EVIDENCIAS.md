@@ -664,4 +664,179 @@ que o único caminho existente sempre cumpre a regra.
 
 ### Por quê
 
-Antes, a garantia dependia de todo código que criasse um Incidente passar pelo ServicoAberturaIncidente. Isso não era protegido de verdade: o RepositorioIncidentesEmMemoria e o ImportadorIncidentesCsv criavam incidentes direto, sem atendimento, e ninguém percebia até o build quebrar depois da mudança. Com o construtor private, essa dependência de disciplina desaparece — não existe caminho de criação fora de Abrir
+Antes, a garantia dependia de todo código que criasse um Incidente passar pelo ServicoAberturaIncidente. 
+Isso não era protegido de verdade: 
+o RepositorioIncidentesEmMemoria e o ImportadorIncidentesCsv criavam incidentes direto, sem atendimento, e ninguém percebia até o build quebrar depois da mudança.
+Com o construtor private, essa dependência de disciplina desaparece — não existe caminho de criação fora de Abrir.
+
+## Domain sem dependência de Application/Infrastructure
+
+### O que se quer provar
+
+`Mobilidade.Domain` não referencia `Mobilidade.Application` nem
+`Mobilidade.Infrastructure` — a camada de domínio não depende de nada
+externo a ela.
+
+### Comando
+
+```bash
+dotnet list src/Mobilidade.Domain reference
+```
+
+### Saída
+
+```
+Não há nenhuma referência Projeto para Projeto no projeto src/Mobilidade.Domain.
+```
+Nenhuma referência listada - 'Domain' depende apenas do propio .NET.
+
+## Regras movidas — Semana 5
+
+### Regra 1: Incidente nasce com pelo menos um Atendimento
+
+**Qual regra:** todo incidente precisa nascer com um atendimento inicial —
+não pode existir incidente órfão, sem nenhum atendimento associado.
+
+**Onde estava (antes):** `ServicoAberturaIncidente.Executar`, em
+`src/Mobilidade.Infrastructure/Servicos/ServicoAberturaIncidente.cs`,
+commit `cfddb83`. A regra era garantida por uma **transação manual**:
+incidente e atendimento eram salvos em dois `SaveChangesAsync()`
+separados, com rollback se o segundo falhasse — mas nada impedia que
+outro código criasse um `Incidente` sem nunca passar por esse serviço.
+
+```csharp
+public async Task<Incidente> Executar(Atendimento atendimento, Incidente incidente)
+{
+    using var transacao = await _contexto.Database.BeginTransactionAsync();
+    try
+    {
+        _contexto.Incidentes.Add(incidente);
+        await _contexto.SaveChangesAsync();
+
+        _contexto.Atendimentos.Add(atendimento);
+        await _contexto.SaveChangesAsync();
+
+        await transacao.CommitAsync();
+        return incidente;
+    }
+    catch
+    {
+        await transacao.RollbackAsync();
+        throw;
+    }
+}
+```
+
+**Onde está agora:** `Incidente.Abrir(...)`, factory method estático em
+`src/Mobilidade.Domain/Modelos/Incidente.cs`. O construtor de `Incidente`
+é `private` — não existe caminho de criação fora de `Abrir`, e `Abrir`
+sempre monta o `Atendimento` inicial antes de devolver o objeto.
+`AbrirIncidente.Executar`, em
+`src/Mobilidade.Application/CasosDeUso/AbrirIncidente.cs`, chama `Abrir`
+e persiste com um único `SaveChanges()`.
+
+**Por quê:** a transação manual virou redundante — um único `SaveChanges()`
+já é atômico por padrão no EF Core. Mas o problema real da versão antiga
+não era a transação, era a garantia: dependia de todo código lembrar de
+passar pelo serviço. Isso já tinha furado antes — `RepositorioIncidentesEmMemoria`
+e `ImportadorIncidentesCsv` criavam `Incidente` direto, sem atendimento.
+Com o construtor `private`, essa dependência de disciplina desaparece:
+não existe caminho de criação que não seja `Abrir`.
+
+### Regra 2: DataHora não pode ser alterada após a criação
+
+**Qual regra:** a data/hora de um incidente representa quando ele
+aconteceu — não é um dado editável depois de registrado.
+
+**Onde estava (antes):** `RepositorioIncidentesEfCore.Atualizar`, em
+`src/Mobilidade.Infrastructure/Repositorio/RepositorioIncidentesEfCore.cs`,
+commit `08b4033` (criação original) até `c19cb5b`. O método sincronizava
+o campo livremente a partir do objeto recebido:
+
+```csharp
+existente.DataHora = incidente.DataHora;
+```
+
+Nada impedia que uma chamada a `Atualizar` reescrevesse quando o
+incidente aconteceu.
+
+**Onde está agora:** `DataHora` tem `private set` em
+`src/Mobilidade.Domain/Modelos/Incidente.cs`. Só é atribuída dentro do
+construtor, na criação. A linha foi removida do `Atualizar` no commit
+`c19cb5b`, e o C# não compila mais uma tentativa de reatribuição de fora
+da classe.
+
+**Por quê:** um incidente registra o que aconteceu. Se `DataHora` pudesse
+mudar depois, o registro deixaria de ser confiável como histórico —
+alguém poderia reescrever quando um incidente ocorreu sem deixar rastro.
+Se a data estiver errada, a correção deveria ser um novo registro ou uma
+operação nomeada, não uma edição silenciosa de campo.
+
+### Regra 3: Severidade não pode ser alterada após a criação
+
+**Qual regra:** a severidade avaliada na abertura do incidente não é
+editável depois — reclassificar exigiria um método de domínio nomeado,
+não uma atribuição livre.
+
+**Onde estava (antes):** `RepositorioIncidentesEfCore.Atualizar`, em
+`src/Mobilidade.Infrastructure/Repositorio/RepositorioIncidentesEfCore.cs`,
+presente desde `08b4033` até `c19cb5b`. O método sincronizava o campo
+livremente:
+
+```csharp
+existente.Severidade = incidente.Severidade;
+```
+
+Qualquer chamada a `Atualizar` conseguia reescrever a severidade, sem
+nenhuma validação ou rastro de que ela mudou.
+
+**Onde está agora:** `Severidade` tem `private set` em
+`src/Mobilidade.Domain/Modelos/Incidente.cs`, atribuída só no construtor.
+A linha foi removida do `Atualizar` no commit `a606eff`.
+
+**Por quê:** se a situação de um incidente mudou a ponto de justificar
+outra severidade, isso é informação nova sobre o mesmo incidente — o
+lugar certo para ela é um novo `Atendimento` registrado, não uma
+sobrescrita do valor original. Sobrescrever apaga o fato de que, no
+momento da abertura, aquela foi a avaliação feita. Reclassificar apaga
+histórico; registrar um atendimento novo o preserva.
+
+## Regressão — refatoração de camadas (Semana 5)
+
+### O que se quer provar
+
+Os testes que já passavam antes da refatoração (mover a orquestração de
+`ServicoAberturaIncidente` em Infrastructure para `AbrirIncidente`,
+`EncerrarIncidente`, `RegistrarAtendimento` em Application, e fechar
+`Atendimento` com setters privados) continuam passando depois.
+
+### Antes da refatoração
+
+```bash
+dotnet test
+```
+
+```
+Resumo do teste: total: 14; falhou: 0; bem-sucedido: 14; ignorado: 0;
+```
+
+### Depois da refatoração
+
+```bash
+dotnet test
+```
+```
+Resumo do teste: total: 13; falhou: 0; bem-sucedido: 13; ignorado: 0; duração: 4,6s
+Construir êxito(s) com 5 aviso(s) em 11,5s
+```
+
+### Por que o total mudou de 14 para 13
+
+`ServicoAberturaIncidenteTests.cs` foi removido junto com
+`ServicoAberturaIncidente.cs` (a classe redundante que ele testava — a
+transação manual virou desnecessária quando `Incidente.Abrir` passou a
+montar o agregado inteiro antes de qualquer `SaveChanges`). O cenário que
+esse teste cobria — rollback ao falhar a gravação do `Atendimento` — não
+desapareceu: hoje, se a gravação falhar, nada é persistido, porque é um
+único `SaveChanges()` atômico. O teste antigo não foi substituído por um
+equivalente novo por causa do prazo; fica registrado aqui como dívida.
