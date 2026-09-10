@@ -57,17 +57,10 @@ public sealed class Incidente
             Descricao = descricao
         };
 
-        var atendimento = new Atendimento
-        {
-            IncidenteId = incidente.Id,
-            OrgaoResponsavel = orgaoResponsavel,
-            DataHora = dataHora,
-            Situacao = situacao,
-            Incidente = incidente
-        };
+        var atendimento = new Atendimento(incidente.Id, orgaoResponsavel, dataHora, situacao);
+        atendimento.Incidente = incidente;
         incidente._atendimentos.Add(atendimento);
         return incidente;
-
     }
     public bool Encerrado { get; private set; }
 
@@ -85,16 +78,10 @@ public sealed class Incidente
         {
             throw new InvalidOperationException("Incidente encerrado não aceita novo atendimento.");
         }
-        var atendimento = new Atendimento
+        var atendimento = new Atendimento(Id, orgaoResponsavel, dataHora, situacao);
         {
-            IncidenteId = Id,
-            OrgaoResponsavel = orgaoResponsavel,
-            DataHora = dataHora,
-            Situacao = situacao,
-            Incidente = this
-
-        };
-        _atendimentos.Add(atendimento);
+            atendimento.Incidente = this;
+            _atendimentos.Add(atendimento);
+        }
     }
-
 }
