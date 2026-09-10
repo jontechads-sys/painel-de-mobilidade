@@ -10,11 +10,10 @@ namespace Mobilidade.Tests;
 public class RepositorioIncidentesEfCoreTests
 {
     [Fact]
-
     public async Task CriarEBuscarIncidente_ConfirmaQueÉOMesmoIncidente()
     {
         var options = new DbContextOptionsBuilder<IncidentesDbContext>()
-        .UseSqlServer("Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=Mobilidade#2026;TrustServerCertificate=true;")
+        .UseSqlServer(TestesConfig.ConnectionString)
         .Options;
         var contexto = new IncidentesDbContext(options);
         var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, "Defesa Civil", "Em analise");
@@ -29,20 +28,20 @@ public class RepositorioIncidentesEfCoreTests
         var resultadoBusca = repositorio.BuscarPorId(incidenteCriado.Id);
 
         Assert.NotNull(resultadoBusca);
-        Assert.Equal(incidente.Descricao ,resultadoBusca.Descricao);
+        Assert.Equal(incidente.Descricao, resultadoBusca.Descricao);
     }
 
     [Fact]
     public async Task BuscarPorIdInexistente_RetornaNull()
     {
         var options = new DbContextOptionsBuilder<IncidentesDbContext>()
-        .UseSqlServer("Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=Mobilidade#2026;TrustServerCertificate=true;")
+        .UseSqlServer(TestesConfig.ConnectionString)
         .Options;
         var contexto = new IncidentesDbContext(options);
         var repositorio = new RepositorioIncidentesEfCore(contexto);
 
-       var resultadoDaBusca = repositorio.BuscarPorId(999);
-       Assert.Null(resultadoDaBusca);
+        var resultadoDaBusca = repositorio.BuscarPorId(999);
+        Assert.Null(resultadoDaBusca);
 
     }
 }

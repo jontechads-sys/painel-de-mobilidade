@@ -12,7 +12,7 @@ public class ServicoAberturaIncidenteTests
     public async Task Executar_ComAtendimentoInvalido_DesfazIncidenteViaRollback()
     {
         var options = new DbContextOptionsBuilder<IncidentesDbContext>()
-        .UseSqlServer("Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=Mobilidade#2026;TrustServerCertificate=true;")
+        .UseSqlServer(TestesConfig.ConnectionString)
         .Options;
 
         var contexto = new IncidentesDbContext(options);
