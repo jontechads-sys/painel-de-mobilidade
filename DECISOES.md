@@ -217,3 +217,40 @@ Com mais tempo disponível, integrar `Periodo` em `Incidente` (substituindo
 
 `Periodo.cs`, `PeriodoTests.cs` (igualdade, invariante de `Fim < Inicio`,
 cálculo de `Duracao`).
+
+## 7. Decisão: `BairroId` sem proteção de imutabilidade pós-criação
+
+**O que foi decidido:**
+
+Decidido: manter BairroId com setter público, sem proteção contra alteração pós-criação do Incidente, apesar de reconhecer que isso permite reescrever o bairro de um incidente já registrado.
+
+**Alternativa considerada:**
+
+Poderiamos criar uma validação onde BairroId nascesse a partir da criação do Incidente sem poder ser alterado após o nascimento  "fechar setter + criar método de domínio" com validação
+
+**Por que a alternativa foi rejeitada:** 
+
+Risco de quebrar EF Core / migrations sem tempo para correções atualmente
+
+**O que mudaria de ideia:** 
+
+Em outro cenario dado a o inicio ou fins de semana "Se possivel" gostaria de implementar essa ideia e as demais que ficaram vagas nesse arquivo como a integração de 
+
+## 8. Bairro.Nome permanece editável, sem proteção
+
+**O que foi decidido:** 
+
+Setter de Nome continua público — sem proteção contra bairro.Nome = "asdasdaw"
+
+**Alternativa considerada:** 
+
+Criar uma lista de bairros onde tivesse seus id's exemplo: Centro = 1 . 
+E que os nomes de Bairro pudessem ser chamados a partir desta lista.
+
+**Por que foi rejeitada:** 
+
+As issues encamihadas para Semanas 05 não  solicitam definidamente isso e consederado a falta de tempo que tenho resolvi deixar para registro futuros
+
+**O que mudaria de ideia:** 
+
+Quando surgir nescessidade real de bairro.nome ser um catalogo por exemplo: onde exatamente ficaria registrado esse incidente em que estado, cidade e etc.
