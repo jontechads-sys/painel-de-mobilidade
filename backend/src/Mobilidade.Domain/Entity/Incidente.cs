@@ -1,4 +1,6 @@
-namespace Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.ValueObjects;
+
+namespace Mobilidade.Domain.Entity;
 
 public enum TipoIncidente
 {

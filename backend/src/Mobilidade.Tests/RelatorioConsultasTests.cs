@@ -1,4 +1,6 @@
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
 using Mobilidade.Application.Consultas;
 
 namespace Mobilidade.Tests;

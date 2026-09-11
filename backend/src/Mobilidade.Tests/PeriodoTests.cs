@@ -1,4 +1,6 @@
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
 using Xunit;
 
 namespace Mobilidade.Tests;

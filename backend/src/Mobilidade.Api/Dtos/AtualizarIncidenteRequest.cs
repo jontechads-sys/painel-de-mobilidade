@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
 
 namespace Mobilidade.Api.Dtos;
 

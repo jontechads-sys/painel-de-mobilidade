@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Mobilidade.Api.Dtos;
 using Mobilidade.Application.Repositorio;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
 using Mobilidade.Application.CasosDeUso;
 
 namespace Mobilidade.Api.Controllers;

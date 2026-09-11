@@ -1,15 +1,17 @@
-namespace Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.ValueObjects;
+
+namespace Mobilidade.Domain.Entity;
 
 public sealed class Atendimento
 {
-    public int Id { get; set; }
+    public int Id { get; private set; }
     public int IncidenteId { get; private set; }
     public string OrgaoResponsavel { get; private set; }
     public DateTime DataHora { get; private set; }
     public string Situacao { get; private set; }
-    public Incidente Incidente {get; internal set;}
+    public Incidente Incidente { get; internal set; }
 
-    public Atendimento(int incidenteId, string  orgaoResponsavel, DateTime dataHora, string situacao)
+    public Atendimento(int incidenteId, string orgaoResponsavel, DateTime dataHora, string situacao)
     {
         IncidenteId = incidenteId;
         OrgaoResponsavel = orgaoResponsavel;

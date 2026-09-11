@@ -1,4 +1,4 @@
-namespace Mobilidade.Domain.Modelos;
+namespace Mobilidade.Domain.Entity;
 
 public sealed class Bairro
 {

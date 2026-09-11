@@ -2,7 +2,9 @@ using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Mobilidade.Application.Importacao;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
 
 namespace Mobilidade.Infrastructure.Importacao;
 

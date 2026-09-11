@@ -1,5 +1,6 @@
 using Mobilidade.Application.Repositorio;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.ValueObjects;
+using Mobilidade.Domain.Entity;
 
 namespace Mobilidade.Application.CasosDeUso;
 
