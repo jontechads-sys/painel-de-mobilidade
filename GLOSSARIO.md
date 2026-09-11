@@ -46,6 +46,23 @@ Este documento estabelece os termos formais do domínio de negócio. O código-f
 * **O que significa:** O estado atual em que se encontra o tratamento do atendimento na via (ex: Em Andamento, Concluído).
 * **O que não significa:** Não deve ser confundido com o Status geral do Incidente em si, pertencendo estritamente ao ciclo do atendimento.
 
+## 8. Descrição
+* **Termo de Negócio:** Descrição
+* **Nome no Código:** `Descricao`
+* **O que significa:** Descrião de Incidente do tipo string aberta para relatar do que se trata. Ex: (Ocorrido uma colisão de carros, deixando feridos).
+* **O que não significa:** Não é se trata de dados gerais de Incidente como data hora e local..
+
+## 9. Tipo de Incidente
+* **Termo de Negócio:** Tipo de Incidente
+* **Nome no Código:** `TipoIncidente`
+* **O que significa:** A categorização exata do evento na via que ajuda a definir qual equipe deve ser despachada (ex: Alagamento, Semáforo Quebrado, Acidente Grave).
+* **O que não significa:** Não se refere ao nível de gravidade ou impacto do evento, que é papel exclusivo da Severidade.
+
+## 10. Data e Hora
+* **Termo de Negócio:** Data e Hora
+* **Nome no Código:** `DataHora`
+* **O que significa:** O registro exato de quando o evento começou na via urbana, utilizado para medir os tempos operacionais.
+* **O que não significa:** Não pode ser uma data/hora no futuro e não deve ser confundida com o carimbo de data/hora (timestamp) do banco de dados de quando o registro foi salvo.
 ---
 
 ## Histórico de Alinhamento de Domínio (Refatoração Exigida)
