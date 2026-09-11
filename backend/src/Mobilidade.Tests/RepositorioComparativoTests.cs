@@ -1,4 +1,6 @@
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
 using Mobilidade.Infrastructure.Repositorio;
 using Mobilidade.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;

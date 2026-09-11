@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
 
 namespace Mobilidade.Infrastructure.Data.Configuracoes;
 
@@ -14,6 +15,12 @@ public class IncidenteConfiguration : IEntityTypeConfiguration<Incidente>
             .IsRequired();
 
         builder.Property(i => i.Tipo)
+            .IsRequired();
+
+        builder.Property(i => i.Severidade)
+            .HasConversion(
+                severidade => severidade.Valor,
+                valor => Severidade.DeInt(valor))
             .IsRequired();
 
         builder.Property(i => i.Descricao)

@@ -1,5 +1,6 @@
 using Mobilidade.Application.Repositorio;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
 using Mobilidade.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -37,9 +38,7 @@ public class RepositorioIncidentesEfCore : IIncidenteRepository
         if (existente == null)
             return null;
 
-        existente.DataHora = incidente.DataHora;
         existente.Tipo = incidente.Tipo;
-        existente.Severidade = incidente.Severidade;
         existente.BairroId = incidente.BairroId;
         existente.Descricao = incidente.Descricao;
 
@@ -56,5 +55,10 @@ public class RepositorioIncidentesEfCore : IIncidenteRepository
         _contexto.Incidentes.Remove(incidente);
         _contexto.SaveChanges();
         return true;
+    }
+    public Incidente Salvar(Incidente incidente)
+    {
+        _contexto.SaveChanges();
+        return incidente;
     }
 }

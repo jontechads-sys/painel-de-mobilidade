@@ -1,4 +1,6 @@
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
 using Mobilidade.Application.Consultas;
 
 namespace Mobilidade.Tests;
@@ -6,13 +8,15 @@ namespace Mobilidade.Tests;
 public class RelatorioConsultasTests
 {
     private static Incidente Criar(
-        int id,
-        DateTime dataHora,
-        TipoIncidente tipo = TipoIncidente.Colisao,
-        Severidade severidade = Severidade.NaoTriada,
-        int bairroId = 1,
-        string? descricao = null)
+    int id,
+    DateTime dataHora,
+    TipoIncidente tipo = TipoIncidente.Colisao,
+    Severidade? severidade = null,
+    int bairroId = 1,
+    string? descricao = null)
     {
+        var severidadeReal = severidade ?? Severidade.Baixa;
+
         var bairroNome = bairroId switch
         {
             1 => "Centro",
@@ -23,16 +27,12 @@ public class RelatorioConsultasTests
             _ => $"Bairro {bairroId}"
         };
 
-        return new Incidente
-        {
-            Id = id,
-            DataHora = dataHora,
-            Tipo = tipo,
-            Severidade = severidade,
-            BairroId = bairroId,
-            Descricao = descricao,
-            Bairro = new Bairro { Id = bairroId, Nome = bairroNome }
-        };
+        var incidente = Incidente.Abrir(dataHora, severidadeReal, bairroId, descricao, "Defesa Civil", "Em analise");
+        incidente.Id = id;
+        incidente.Tipo = tipo;
+        incidente.Bairro = new Bairro { Id = bairroId, Nome = bairroNome };
+
+        return incidente;
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class RelatorioConsultasTests
     }
 
     [Fact]
-    public void Top3BairrosSeveridadeAlta_IgnoraIncidentesSemSeveridadeOuComOutraSeveridade()
+    public void Top3BairrosSeveridadeAlta_IgnoraIncidentesComOutraSeveridade()
     {
         var incidentes = new[]
         {
@@ -63,7 +63,6 @@ public class RelatorioConsultasTests
             Criar(2, DateTime.Today, bairroId: 2, severidade: Severidade.Alta),
             Criar(3, DateTime.Today, bairroId: 3, severidade: Severidade.Baixa),
             Criar(4, DateTime.Today, bairroId: 4, severidade: Severidade.Alta),
-            Criar(5, DateTime.Today, bairroId: 5, severidade: Severidade.NaoTriada),
         };
 
         var resultado = RelatorioConsultas.Top3BairrosSeveridadeAlta(incidentes);

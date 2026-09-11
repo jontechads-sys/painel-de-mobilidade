@@ -1,4 +1,5 @@
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
 
 namespace Mobilidade.Application.Repositorio
 {
@@ -9,6 +10,7 @@ namespace Mobilidade.Application.Repositorio
         IReadOnlyList<Incidente> Listar();
         Incidente? BuscarPorId(int id);
         Incidente? Atualizar(int id, Incidente incidente);
+        Incidente Salvar(Incidente incidente);
         bool Remover(int id);
     }
 }

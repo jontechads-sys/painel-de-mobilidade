@@ -1,5 +1,6 @@
 using Mobilidade.Application.Repositorio;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
 
 namespace Mobilidade.Infrastructure.Repositorio;
 
@@ -10,23 +11,14 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
 
     public RepositorioIncidentesEmMemoria()
     {
-         _incidentes = new Dictionary<int, Incidente>();
+        _incidentes = new Dictionary<int, Incidente>();
     }
     public Incidente Criar(Incidente incidente)
     {
-        var incidenteFinal = new Incidente
-        {
-            Id = _proximoId,
-            DataHora = incidente.DataHora,
-            Tipo = incidente.Tipo,
-            Severidade = incidente.Severidade,
-            BairroId = incidente.BairroId,
-            Descricao = incidente.Descricao,
-            Bairro = incidente.Bairro
-        };
-        _incidentes[incidenteFinal.Id] = incidenteFinal;
+        incidente.Id = _proximoId;
+        _incidentes[incidente.Id] = incidente;
         _proximoId++;
-        return incidenteFinal;
+        return incidente;
     }
     public IReadOnlyList<Incidente> Listar()
     {
@@ -38,26 +30,23 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
     }
     public Incidente? Atualizar(int id, Incidente incidente)
     {
-        if (!_incidentes.ContainsKey(id))
+        if (!_incidentes.TryGetValue(id, out var existente))
         {
             return null;
         }
-        var incidenteAtualizado = new Incidente
-        {
-            Id = id,
-            DataHora = incidente.DataHora,
-            Tipo = incidente.Tipo,
-            Severidade = incidente.Severidade,
-            BairroId = incidente.BairroId,
-            Descricao = incidente.Descricao,
-            Bairro = incidente.Bairro
-        };
-        _incidentes[id] = incidenteAtualizado;
-        return incidenteAtualizado;
+        existente.Tipo = incidente.Tipo;
+        existente.BairroId = incidente.BairroId;
+        existente.Descricao = incidente.Descricao;
+
+        return existente;
     }
     public bool Remover(int id)
     {
         return _incidentes.Remove(id);
     }
-
+    public Incidente Salvar(Incidente incidente)
+    {
+        _incidentes[incidente.Id] = incidente;
+        return incidente;
+    }
 }

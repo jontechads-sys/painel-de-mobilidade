@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using Mobilidade.Api.Dtos;
 using Mobilidade.Application.Repositorio;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
+using Mobilidade.Application.CasosDeUso;
 
 namespace Mobilidade.Api.Controllers;
 
@@ -10,25 +13,31 @@ namespace Mobilidade.Api.Controllers;
 public class IncidentesController : ControllerBase
 {
     private readonly IIncidenteRepository _repositorio;
-    public IncidentesController(IIncidenteRepository repositorio)
+    private readonly AbrirIncidente _abrirIncidente;
+    private readonly EncerrarIncidente _encerrarIncidente;
+    private readonly RegistrarAtendimento _registrarAtendimento;
+
+    public IncidentesController(IIncidenteRepository repositorio, AbrirIncidente servicoAbertura, EncerrarIncidente encerrarIncidente, RegistrarAtendimento registrarAtendimento)
     {
         _repositorio = repositorio;
+        _abrirIncidente = servicoAbertura;
+        _encerrarIncidente = encerrarIncidente;
+        _registrarAtendimento = registrarAtendimento;
     }
     [HttpPost]
     public IActionResult Criar(CriarIncidenteRequest request)
     {
-        var incidente = new Incidente
-        {
-            Id = 0,
-            DataHora = request.DataHora,
-            Tipo = request.Tipo,
-            Severidade = request.Severidade,
-            BairroId = request.BairroId,
-            Descricao = request.Descricao
-        };
-        var incidenteCriado = _repositorio.Criar(incidente);
+        var incidenteCriado = _abrirIncidente.Executar(
+            request.DataHora,
+            request.Severidade,
+            request.BairroId,
+            request.Descricao,
+            request.OrgaoResponsavel,
+            request.Situacao);
+
         return CreatedAtAction(nameof(BuscarPorId), new { id = incidenteCriado.Id }, incidenteCriado);
     }
+
     [HttpGet("{id}")]
     public IActionResult BuscarPorId(int id)
     {
@@ -44,26 +53,24 @@ public class IncidentesController : ControllerBase
         var incidentes = _repositorio.Listar();
         return Ok(incidentes);
     }
+
     [HttpPut("{id}")]
     public IActionResult Atualizar(int id, AtualizarIncidenteRequest request)
     {
-        var incidenteConvertido = new Incidente
-        {
-            Id = id,
-            DataHora = request.DataHora,
-            Tipo = request.Tipo,
-            Severidade = request.Severidade,
-            BairroId = request.BairroId,
-            Descricao = request.Descricao
-            };
-        var incidenteAtualizado = _repositorio.Atualizar(id, incidenteConvertido);
-        if (incidenteAtualizado is null)
+        var incidenteExistente = _repositorio.BuscarPorId(id);
+        if (incidenteExistente is null)
         {
             return NotFound();
         }
 
+        incidenteExistente.Tipo = request.Tipo;
+        incidenteExistente.BairroId = request.BairroId;
+        incidenteExistente.Descricao = request.Descricao;
+
+        var incidenteAtualizado = _repositorio.Atualizar(id, incidenteExistente);
         return Ok(incidenteAtualizado);
     }
+
     [HttpDelete("{id}")]
     public IActionResult Remover(int id)
     {
@@ -74,5 +81,41 @@ public class IncidentesController : ControllerBase
             return NotFound();
         }
         return NoContent();
+    }
+    [HttpPost("{id}/encerrar")]
+    public IActionResult Encerrar(int id)
+    {
+        try
+        {
+            var incidente = _encerrarIncidente.Executar(id);
+            return Ok(incidente);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
+
+    [HttpPost("{id}/atendimentos")]
+    public IActionResult RegistrarAtendimento(int id, RegistrarAtendimentoRequest request)
+    {
+        try
+        {
+            var incidente = _registrarAtendimento.Executar(
+                id, request.DataHora, request.OrgaoResponsavel, request.Situacao);
+            return Ok(incidente);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
     }
 }

@@ -15,11 +15,13 @@ npm-debug.log*
 .env.*
 !.env.example
 appsettings.Development.json
+TestesConfig.cs
 
 ## SQL Server / Docker
 *.mdf
 *.ldf
 *.bak
+
 
 ## Editores / SO
 .idea/

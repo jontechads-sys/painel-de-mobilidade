@@ -50,7 +50,7 @@ namespace Mobilidade.Infrastructure.Migrations
 
                     b.HasIndex("IncidenteId");
 
-                    b.ToTable("Atendimento");
+                    b.ToTable("Atendimento", (string)null);
                 });
 
             modelBuilder.Entity("Mobilidade.Domain.Modelos.Bairro", b =>
@@ -87,6 +87,9 @@ namespace Mobilidade.Infrastructure.Migrations
 
                     b.Property<string>("Descricao")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("Encerrado")
+                        .HasColumnType("bit");
 
                     b.Property<int>("Severidade")
                         .HasColumnType("int");

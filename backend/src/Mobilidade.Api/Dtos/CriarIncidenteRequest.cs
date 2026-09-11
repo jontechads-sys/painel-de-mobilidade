@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
 
 namespace Mobilidade.Api.Dtos;
 
@@ -8,6 +10,7 @@ public sealed record CriarIncidenteRequest(
     TipoIncidente Tipo,
     Severidade Severidade,
     int BairroId,
-    //[Required, MinLength(1)]string Bairro,
-    string? Descricao
-    );
+    string? Descricao,
+    string OrgaoResponsavel,
+    string Situacao
+);

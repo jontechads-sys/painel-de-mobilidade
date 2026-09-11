@@ -2,7 +2,9 @@ using System.Globalization;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Mobilidade.Application.Importacao;
-using Mobilidade.Domain.Modelos;
+using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
+
 
 namespace Mobilidade.Infrastructure.Importacao;
 
@@ -55,25 +57,31 @@ public sealed class ImportadorIncidentesCsv : IIncidenteImportador
                 avisos.Add($"Linha {numeroLinha}: tipo '{campos[2]}' desconhecido — descartada.");
                 continue;
             }
+            if (!Severidade.TryParse(campos[3], out var severidade))
+            {
 
-            Severidade severidade = TryParseEnum<Severidade>(campos[3], out var severidadeValor)
-                ? severidadeValor
-                : Severidade.NaoTriada;
-
+                avisos.Add($"Linha{numeroLinha}: severidade '{campos[3]}'invalida ou ausente - descartada.");
+                continue;
+            }
             var nomeBairro = string.IsNullOrWhiteSpace(campos[4]) ? "(nao informado)" : campos[4].Trim();
             var descricao = string.IsNullOrWhiteSpace(campos[5]) ? null : campos[5].Trim();
 
-            // TODO: resolver nomeBairro -> BairroId de verdade (lookup/criacao via repositorio de bairros).
-            // Por enquanto usa um placeholder so para destravar a compilacao.
-            incidentes.Add(new Incidente
-            {
-                Id = id,
-                DataHora = dataHora,
-                Tipo = tipo,
-                Severidade = severidade,
-                BairroId = 0,
-                Descricao = descricao
-            });
+            // TODO: resolver nomeBairro -> BairroId real (dívida registrada em DECISOES.md).
+            // Por enquanto usa 0 como placeholder, o que falha na FK se não existir
+            // Bairro com Id = 0 no banco (dívida conhecida, não bloqueante para a semana 5).
+            var incidente = Incidente.Abrir(
+                dataHora,
+                severidade,
+                bairroId: 0,
+                descricao: descricao,
+                orgaoResponsavel: "Nao informado (Importacao CSV)",
+                situacao: "Nao informado (Importacao CSV)");
+
+            incidente.Id = id;
+            incidente.Tipo = tipo;
+
+            incidentes.Add(incidente);
+
         }
 
         return new ResultadoImportacao(incidentes, avisos);
