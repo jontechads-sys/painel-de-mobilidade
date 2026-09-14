@@ -201,11 +201,9 @@ encerramento num único objeto.
 
 **Por que foi rejeitada**
 
-A troca de `Severidade` para value object já custou uma tarde inteira de
-correção em cascata (49 ocorrências no código). Repetir isso para
-`DataHora`/`Periodo` faltando poucas horas para o prazo era risco alto
-sem necessidade — a issue pede um segundo VO que "faça sentido no
-domínio", não que já esteja integrado em tudo.
+Não avaliei o risco técnico da integração com antecedência — a decisão foi tomada sexta de manhã, sem tempo hábil até o prazo de entrega (18h) para replicar com segurança a mesma cascata de correções que `Severidade` exigiu na decisão #5.
+
+Diante do prazo apertado e de outras atividades da semana em aberto, priorizei garantir que o que já estava pronto (Severidade, DeveriaEscalonar, testes) chegasse íntegro à entrega, em vez de arriscar quebrar isso tentando encaixar Periodo de última hora.
 
 **O que mudaria de ideia**
 
@@ -230,7 +228,11 @@ Poderiamos criar uma validação onde BairroId nascesse a partir da criação do
 
 **Por que a alternativa foi rejeitada:** 
 
-Risco de quebrar EF Core / migrations sem tempo para correções atualmente
+Avaliei um risco de quebrar EF Core / migrations.
+
+Devido o prazo apertado de entrega não
+deixou margem para expandir escopo por conta própria sem risco de atrasar
+o que já estava pronto.
 
 **O que mudaria de ideia:** 
 
@@ -247,10 +249,35 @@ Setter de Nome continua público — sem proteção contra bairro.Nome = "asdasd
 Criar uma lista de bairros onde tivesse seus id's exemplo: Centro = 1 . 
 E que os nomes de Bairro pudessem ser chamados a partir desta lista.
 
-**Por que foi rejeitada:** 
+**Por que foi rejeitada**
 
-As issues encamihadas para Semanas 05 não  solicitam definidamente isso e consederado a falta de tempo que tenho resolvi deixar para registro futuros
+As issues da Semana 05 não solicitavam catalogar bairros — o escopo pedido
+era outro. Mesmo reconhecendo o valor de fechar esse buraco (mesma lógica
+da decisão #5, aplicada a Bairro.Nome), o prazo apertado de entrega não
+deixou margem para expandir escopo por conta própria sem risco de atrasar
+o que já estava pronto.
 
 **O que mudaria de ideia:** 
 
 Quando surgir nescessidade real de bairro.nome ser um catalogo por exemplo: onde exatamente ficaria registrado esse incidente em que estado, cidade e etc.
+
+## 9. Ecalonamento deve Considerar NaoTriada:
+
+**Oque foi decidido:** 
+O 'DeveriaEscalonar' não irá atingir Severidades NaoTriadas.
+
+**Alternativa considerada:**
+Incidentes com Severidade = NaoTriada deveriam escalonar, por não terem uma severidade válida atribuída ainda.
+
+**Justificativa:**
+Como NaoTriado é um Incidente sem Severidade pode se ocorrer casos em que o usuário se esquece de marcar uma severidade e pensando no pior caso poderia ser um Incidente que mereceria uma severidade Alta.
+
+**Por que foi rejeitada:**
+Ausência de triagem é, ela mesma, um risco operacional — um incidente sem severidade definida pode ser grave 
+(ex: erro na criação que deveria ter sido marcado como Alta) e ficar invisível indefinidamente se não escalonar. 
+
+Por tanto como já mencionado neste arquivo Incidentes não podem mais nascer sem uma Severidade válida definida, o escaloneamento iria servir apenas para os dados legado no banco que são tachados como não triados,
+Decido que isso deveria ser um serviço mais operacional/adm do que desenvolvimento. 
+
+**Status:**
+[Fechado]
