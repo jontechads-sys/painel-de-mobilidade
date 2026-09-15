@@ -22,7 +22,7 @@ namespace Mobilidade.Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("Mobilidade.Domain.Modelos.Atendimento", b =>
+            modelBuilder.Entity("Mobilidade.Domain.Entity.Atendimento", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -53,7 +53,7 @@ namespace Mobilidade.Infrastructure.Migrations
                     b.ToTable("Atendimento", (string)null);
                 });
 
-            modelBuilder.Entity("Mobilidade.Domain.Modelos.Bairro", b =>
+            modelBuilder.Entity("Mobilidade.Domain.Entity.Bairro", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -71,7 +71,7 @@ namespace Mobilidade.Infrastructure.Migrations
                     b.ToTable("Bairros");
                 });
 
-            modelBuilder.Entity("Mobilidade.Domain.Modelos.Incidente", b =>
+            modelBuilder.Entity("Mobilidade.Domain.Entity.Incidente", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -82,14 +82,8 @@ namespace Mobilidade.Infrastructure.Migrations
                     b.Property<int>("BairroId")
                         .HasColumnType("int");
 
-                    b.Property<DateTime>("DataHora")
-                        .HasColumnType("datetime2");
-
                     b.Property<string>("Descricao")
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("Encerrado")
-                        .HasColumnType("bit");
 
                     b.Property<int>("Severidade")
                         .HasColumnType("int");
@@ -104,9 +98,9 @@ namespace Mobilidade.Infrastructure.Migrations
                     b.ToTable("Incidentes");
                 });
 
-            modelBuilder.Entity("Mobilidade.Domain.Modelos.Atendimento", b =>
+            modelBuilder.Entity("Mobilidade.Domain.Entity.Atendimento", b =>
                 {
-                    b.HasOne("Mobilidade.Domain.Modelos.Incidente", "Incidente")
+                    b.HasOne("Mobilidade.Domain.Entity.Incidente", "Incidente")
                         .WithMany("Atendimentos")
                         .HasForeignKey("IncidenteId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -115,18 +109,40 @@ namespace Mobilidade.Infrastructure.Migrations
                     b.Navigation("Incidente");
                 });
 
-            modelBuilder.Entity("Mobilidade.Domain.Modelos.Incidente", b =>
+            modelBuilder.Entity("Mobilidade.Domain.Entity.Incidente", b =>
                 {
-                    b.HasOne("Mobilidade.Domain.Modelos.Bairro", "Bairro")
+                    b.HasOne("Mobilidade.Domain.Entity.Bairro", "Bairro")
                         .WithMany()
                         .HasForeignKey("BairroId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.OwnsOne("Mobilidade.Domain.ValueObjects.Periodo", "Periodo", b1 =>
+                        {
+                            b1.Property<int>("IncidenteId")
+                                .HasColumnType("int");
+
+                            b1.Property<DateTime?>("Fim")
+                                .HasColumnType("datetime2");
+
+                            b1.Property<DateTime>("Inicio")
+                                .HasColumnType("datetime2");
+
+                            b1.HasKey("IncidenteId");
+
+                            b1.ToTable("Incidentes");
+
+                            b1.WithOwner()
+                                .HasForeignKey("IncidenteId");
+                        });
+
                     b.Navigation("Bairro");
+
+                    b.Navigation("Periodo")
+                        .IsRequired();
                 });
 
-            modelBuilder.Entity("Mobilidade.Domain.Modelos.Incidente", b =>
+            modelBuilder.Entity("Mobilidade.Domain.Entity.Incidente", b =>
                 {
                     b.Navigation("Atendimentos");
                 });
