@@ -13,13 +13,15 @@ public enum TipoIncidente
 }
 public sealed class Incidente
 {
+    private Incidente() { }
+    public Periodo Periodo { get; private set; }
     public int Id { get; set; }
-    public DateTime DataHora { get; private set; }
-    private Incidente(DateTime dataHora, Severidade severidade)
+    private Incidente(Periodo periodo, Severidade severidade)
     {
-        if (dataHora > DateTime.UtcNow)
-            throw new ArgumentException("DataHora não pode ser futura.", nameof(dataHora));
-        DataHora = dataHora;
+        Periodo = periodo;
+
+        if (periodo.Inicio > DateTime.UtcNow)
+            throw new ArgumentException("Incidente não pode ser iniciado com data e hora futuras", nameof(periodo));
 
         if (severidade == Severidade.NaoTriada)
             throw new ArgumentException("Severidade Ausente", nameof(severidade));
@@ -42,30 +44,31 @@ public sealed class Incidente
         string orgaoResponsavel,
         string situacao)
     {
-        var incidente = new Incidente(dataHora, severidade)
+
+        var periodo = new Periodo(dataHora);
+        var incidente = new Incidente(periodo, severidade)
         {
             BairroId = bairroId,
             Descricao = descricao
         };
 
-        var atendimento = new Atendimento(incidente.Id, orgaoResponsavel, dataHora, situacao);
+        var atendimento = new Atendimento(incidente.Id, orgaoResponsavel, periodo.Inicio, situacao);
         atendimento.Incidente = incidente;
         incidente._atendimentos.Add(atendimento);
         return incidente;
     }
-    public bool Encerrado { get; private set; }
 
     public void Encerrar()
     {
-        if (Encerrado)
+        if (!Periodo.EstaEmAberto)
         {
             throw new InvalidOperationException("Incidente já foi encerrado");
         }
-        Encerrado = true;
+        Periodo = new Periodo(Periodo.Inicio, DateTime.UtcNow);
     }
     public void RegistrarAtendimento(DateTime dataHora, string orgaoResponsavel, string situacao)
     {
-        if (Encerrado)
+        if (!Periodo.EstaEmAberto)
         {
             throw new InvalidOperationException("Incidente encerrado não aceita novo atendimento.");
         }

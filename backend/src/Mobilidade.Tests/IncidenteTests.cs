@@ -50,4 +50,10 @@ public class IncidenteTests
 
         Assert.Single(incidente.Atendimentos);
     }
+    [Fact]
+    public void Abrir_DeveTerPeriodoComInicioIgualDataHora()
+    {
+        var incidente = Incidente.Abrir(DateTime.UtcNow.AddHours(-1), Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise");
+        Assert.NotNull(incidente.Periodo);
+    }
 }
