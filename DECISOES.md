@@ -201,9 +201,15 @@ encerramento num único objeto.
 
 **Por que foi rejeitada**
 
-Não avaliei o risco técnico da integração com antecedência — a decisão foi tomada sexta de manhã, sem tempo hábil até o prazo de entrega (18h) para replicar com segurança a mesma cascata de correções que `Severidade` exigiu na decisão #5.
+Não avaliei o risco técnico da integração com antecedência — a decisão foi
+tomada sexta de manhã, sem tempo hábil até o prazo de entrega (18h) para
+replicar com segurança a mesma cascata de correções que `Severidade`
+exigiu na decisão #5.
 
-Diante do prazo apertado e de outras atividades da semana em aberto, priorizei garantir que o que já estava pronto (Severidade, DeveriaEscalonar, testes) chegasse íntegro à entrega, em vez de arriscar quebrar isso tentando encaixar Periodo de última hora.
+Diante do prazo apertado e de outras atividades da semana em aberto,
+priorizei garantir que o que já estava pronto (Severidade,
+DeveriaEscalonar, testes) chegasse íntegro à entrega, em vez de arriscar
+quebrar isso tentando encaixar Periodo de última hora.
 
 **O que mudaria de ideia**
 
@@ -211,43 +217,57 @@ Com mais tempo disponível, integrar `Periodo` em `Incidente` (substituindo
 `DataHora` e futuramente calculando duração real do incidente a partir de
 `Encerrar()`) seria a evolução natural.
 
+**Atualização (Semana 06): Dívida técnica 'Integrar Periodo'**
+
+Dívida quitada. Periodo integrado tanto no domínio quanto no banco de
+dados, conforme a issue #33. Ver decisão #10 para os detalhes da
+integração.
+
 **Evidência**
 
 `Periodo.cs`, `PeriodoTests.cs` (igualdade, invariante de `Fim < Inicio`,
 cálculo de `Duracao`).
 
+---
+
 ## 7. Decisão: `BairroId` sem proteção de imutabilidade pós-criação
 
-**O que foi decidido:**
+**O que foi decidido**
 
-Decidido: manter BairroId com setter público, sem proteção contra alteração pós-criação do Incidente, apesar de reconhecer que isso permite reescrever o bairro de um incidente já registrado.
+Decidido: manter BairroId com setter público, sem proteção contra
+alteração pós-criação do Incidente, apesar de reconhecer que isso permite
+reescrever o bairro de um incidente já registrado.
 
-**Alternativa considerada:**
+**Alternativa considerada**
 
-Poderiamos criar uma validação onde BairroId nascesse a partir da criação do Incidente sem poder ser alterado após o nascimento  "fechar setter + criar método de domínio" com validação
+Poderíamos criar uma validação onde BairroId nascesse a partir da criação
+do Incidente sem poder ser alterado após o nascimento — "fechar setter +
+criar método de domínio" com validação.
 
-**Por que a alternativa foi rejeitada:** 
+**Por que foi rejeitada**
 
-Avaliei um risco de quebrar EF Core / migrations.
+Avaliei um risco de quebrar EF Core / migrations. Devido ao prazo apertado
+de entrega, não deixou margem para expandir escopo por conta própria sem
+risco de atrasar o que já estava pronto.
 
-Devido o prazo apertado de entrega não
-deixou margem para expandir escopo por conta própria sem risco de atrasar
-o que já estava pronto.
+**O que mudaria de ideia**
 
-**O que mudaria de ideia:** 
+Em outro cenário, dado início ou fim de semana "se possível", gostaria de
+implementar essa ideia e as demais que ficaram vagas nesse arquivo.
 
-Em outro cenario dado a o inicio ou fins de semana "Se possivel" gostaria de implementar essa ideia e as demais que ficaram vagas nesse arquivo como a integração de 
+---
 
 ## 8. Bairro.Nome permanece editável, sem proteção
 
-**O que foi decidido:** 
+**O que foi decidido**
 
-Setter de Nome continua público — sem proteção contra bairro.Nome = "asdasdaw"
+Setter de Nome continua público — sem proteção contra
+`bairro.Nome = "asdasdaw"`.
 
-**Alternativa considerada:** 
+**Alternativa considerada**
 
-Criar uma lista de bairros onde tivesse seus id's exemplo: Centro = 1 . 
-E que os nomes de Bairro pudessem ser chamados a partir desta lista.
+Criar uma lista de bairros onde tivesse seus ids (exemplo: Centro = 1), e
+que os nomes de Bairro pudessem ser chamados a partir dessa lista.
 
 **Por que foi rejeitada**
 
@@ -257,27 +277,134 @@ da decisão #5, aplicada a Bairro.Nome), o prazo apertado de entrega não
 deixou margem para expandir escopo por conta própria sem risco de atrasar
 o que já estava pronto.
 
-**O que mudaria de ideia:** 
+**O que mudaria de ideia**
 
-Quando surgir nescessidade real de bairro.nome ser um catalogo por exemplo: onde exatamente ficaria registrado esse incidente em que estado, cidade e etc.
+Quando surgir necessidade real de Bairro.Nome ser um catálogo — por
+exemplo, onde exatamente ficaria registrado esse incidente (estado,
+cidade, etc.).
 
-## 9. Ecalonamento deve Considerar NaoTriada:
+---
 
-**Oque foi decidido:** 
-O 'DeveriaEscalonar' não irá atingir Severidades NaoTriadas.
+## 9. Escalonamento não considera `NaoTriada`
 
-**Alternativa considerada:**
-Incidentes com Severidade = NaoTriada deveriam escalonar, por não terem uma severidade válida atribuída ainda.
+**O que foi decidido**
 
-**Justificativa:**
-Como NaoTriado é um Incidente sem Severidade pode se ocorrer casos em que o usuário se esquece de marcar uma severidade e pensando no pior caso poderia ser um Incidente que mereceria uma severidade Alta.
+`DeveriaEscalonar` não irá atingir severidades `NaoTriada`.
 
-**Por que foi rejeitada:**
-Ausência de triagem é, ela mesma, um risco operacional — um incidente sem severidade definida pode ser grave 
-(ex: erro na criação que deveria ter sido marcado como Alta) e ficar invisível indefinidamente se não escalonar. 
+**Alternativa considerada**
 
-Por tanto como já mencionado neste arquivo Incidentes não podem mais nascer sem uma Severidade válida definida, o escaloneamento iria servir apenas para os dados legado no banco que são tachados como não triados,
-Decido que isso deveria ser um serviço mais operacional/adm do que desenvolvimento. 
+Incidentes com Severidade = NaoTriada deveriam escalonar, por não terem
+uma severidade válida atribuída ainda.
 
-**Status:**
+**Justificativa (para a alternativa)**
+
+Como NaoTriada é um incidente sem severidade, pode ocorrer casos em que o
+usuário se esqueceu de marcar uma severidade, e pensando no pior caso
+poderia ser um incidente que mereceria severidade Alta.
+
+**Por que foi rejeitada**
+
+Ausência de triagem é, ela mesma, um risco operacional — um incidente sem
+severidade definida pode ser grave (ex: erro na criação que deveria ter
+sido marcado como Alta) e ficar invisível indefinidamente se não
+escalonar.
+
+Porém, como já mencionado neste arquivo, incidentes não podem mais nascer
+sem uma severidade válida definida — o escalonamento serviria apenas para
+os dados legados no banco que são tachados como não triados. Decidido que
+isso deveria ser um serviço mais operacional/administrativo do que de
+desenvolvimento.
+
+**Status**
+
 [Fechado]
+
+---
+
+## 10. Integração do `Periodo` cobrindo o lugar de `DataHora`
+
+**O que foi decidido**
+
+`Periodo` é integrado ao `Incidente`, substituindo `DataHora` (o momento
+de abertura) e `Encerrado` (o bool de estado). `Periodo` passa a ser a
+única fonte de verdade sobre o tempo de um incidente: `Inicio` é fixado na
+abertura, e `Fim` (inicialmente `null`) é preenchido quando `Encerrar()`
+é chamado — substituindo o `Periodo` inteiro por um novo, já que o VO é
+imutável.
+
+**Alternativa considerada**
+
+Manter `DataHora` e `Encerrado` como estavam, sem integrar `Periodo`.
+
+**Por que foi rejeitada**
+
+Manter os dois métodos anteriores poderia duplicar o estado de
+"Encerrado" do Incidente, além de dessincronizar o estado — alguém
+atualiza um e esquece o outro. Isso acabaria gerando um certo risco para
+os incidentes (dado inconsistente entre `Encerrado` e a informação real de
+quando o incidente terminou).
+
+**O que mudaria de ideia**
+
+No caso de Incidente precisar de múltiplos registros além de
+aberto/fechado — ex: abriu incidente, fechou, reabriu de novo, fechou
+novamente — um único `Periodo` não seria suficiente; seria necessária uma
+coleção de períodos.
+
+**Evidência**
+
+`Incidente.cs` (Periodo substitui DataHora/Encerrado). Teste
+`Abrir_DeveTerPeriodoComInicioIgualDataHora` em `IncidenteTests.cs`.
+Migration `IntegraPeriodoNoIncidente`. `EVIDENCIAS.md`, seção "Semana 6:
+Integração de Periodo no Incidente".
+
+---
+
+## 11. Mapeamento de `Periodo` via `OwnsOne`, não `Property()`
+
+**O que foi decidido**
+
+`Periodo` é mapeado via `OwnsOne` no EF Core, com `Inicio` obrigatório e
+`Fim` opcional.
+
+**Alternativa considerada**
+
+Mapear `Periodo` diretamente com `Property()`, como se fosse um valor
+escalar simples (igual `DataHora` era antes).
+
+**Por que foi rejeitada**
+
+`Property()` compila normalmente — o C# não sabe, em tempo de compilação,
+que o tipo é inadequado para o provider. Mas falha em runtime: ao rodar
+`dotnet ef migrations add`, o EF Core devolveu erro dizendo que o tipo
+`Periodo` não pode ser mapeado, porque o provider do banco não suporta
+esse tipo diretamente (Periodo tem dois campos internos, `Inicio` e
+`Fim`, não é um valor escalar único).
+
+**O que mudaria de ideia**
+
+Enquanto `Periodo` continuar sendo um Value Object com mais de um campo
+(Inicio, Fim), `Property()` nunca vai funcionar — essa decisão é
+praticamente definitiva. Só mudaria se `Periodo` fosse simplificado para
+um único valor escalar, deixando de ser um VO composto.
+
+**Evidência**
+
+`IncidenteConfiguration.cs` (configuração real com `OwnsOne`). Comando
+`dotnet ef migrations add` e a saída de erro completa da tentativa com
+`Property()`, documentados no `EVIDENCIAS.md`, seção "Semana 6: Integração
+de Periodo no Incidente" → "Tentativa rejeitada: mapear Periodo com
+Property() direto".
+
+---
+
+## Sugestão de estrutura (referência, decisões 12+ ainda a formalizar)
+
+Decisão: RegistrarAtendimento não valida "data não pode ser futura"
+Alternativa considerada e rejeitada: validar no construtor de Atendimento,
+como regra universal (mesmo padrão usado em Incidente.Abrir())
+Por quê rejeitada: atendimento pode representar agendamento futuro (ex:
+equipe programada pra atuar no dia seguinte); bloquear isso restringiria
+um cenário legítimo do negócio
+Consequência: diferente de Incidente, que não pode nascer no futuro,
+Atendimento pode.

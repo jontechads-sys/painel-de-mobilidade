@@ -592,6 +592,37 @@ Id          DataHora                               Encerrado
 (23 rows affected)
 ```
 
+### Tentativa rejeitada: mapear Periodo com Property() direto
+
+**O que se quer provar:** antes de usar `OwnsOne`, a primeira tentativa foi
+mapear `Periodo` como se fosse um valor escalar simples, com
+`builder.Property(i => i.Periodo).IsRequired();`. Isso compila normalmente
+(o C# não sabe, em tempo de compilação, que o tipo é inadequado para o
+provider), mas falha em runtime.
+
+Comando:
+```bash
+dotnet ef migrations add TesteMapeamentoPeriodo --project backend/src/Mobilidade.Infrastructure --startup-project backend/src/Mobilidade.Api
+```
+
+Saída (erro):
+```
+Unable to create a 'DbContext' of type 'IncidentesDbContext'. The exception
+'The 'Periodo' property 'Incidente.Periodo' could not be mapped because the
+database provider does not support this type. Consider converting the
+property value to a type supported by the database using a value converter.
+See https://aka.ms/efcore-docs-value-converters for more information.
+Alternately, exclude the property from the model using the '[NotMapped]'
+attribute or by using 'EntityTypeBuilder.Ignore' in 'OnModelCreating'.' was
+thrown while attempting to create an instance.
+```
+
+Confirma que `dotnet build` sozinho não é suficiente para validar mapeamento
+de Value Objects no EF Core — só o comando de migration força o EF a
+tentar interpretar o modelo de fato. Corrigido substituindo por
+`builder.OwnsOne(i => i.Periodo, periodoBuilder => { ... })`, documentado
+na seção "Por quê" abaixo.
+
 ### Migration aplicada — SQL executado (primeira aplicação)
 
 ```
