@@ -454,6 +454,7 @@ após a reescrita.
 
 Regra protegida em `src/Mobilidade.Domain/Modelos/Incidente.cs`, linha 27-28.
 Teste em `src/Mobilidade.Tests/IncidenteTests.cs`.
+Prova que um incidente não pode ser criado com data e hora no futuro.
 
 ### Comando
 
@@ -502,364 +503,233 @@ Resumo do teste: total: 2; falhou: 0; bem-sucedido: 2; ignorado: 0; duração: 2
 
 A regra vive no construtor, e não num serviço de aplicação, porque assim não existe caminho de criação que produza um incidente com data futura: qualquer new Incidente(...) passa por ela. Se a validação morasse num serviço, todo caso de uso novo teria que lembrar de chamá-lo. O private set completa a proteção — sem ele, a data poderia ser reatribuída depois da criação, desfazendo a validação.
 
-## Invariante 2: Severidade obrigatória e válida na criação
+## Semana 6: Integração de Periodo no Incidente
 
-### O que se quer provar
+### Contagem de ocorrências de Periodo antes da integração
 
-Prova que um incidente não pode ser criado com severidade `NaoTriada` ou
-com valor fora do enum.
+**O que se quer provar:** o Value Object `Periodo` já existia (criado em
+sessão anterior), mas não estava integrado ao `Incidente` — dívida da
+Semana 5.
 
-Regra protegida em `src/Mobilidade.Domain/Modelos/Incidente.cs`, dentro do
-construtor (verificações de `NaoTriada` e de valor fora do enum).
-Testes em `src/Mobilidade.Tests/IncidenteTests.cs`.
-
-### Comando
-
+Comando:
 ```bash
-dotnet test --filter IncidenteTests
+grep -rn "Periodo" --include=*.cs .
 ```
 
-### 1. Com a proteção ativa — passa
-
+Saída:
 ```
-[xUnit.net 00:00:00.21] Starting: Mobilidade.Tests
-[xUnit.net 00:00:01.60] Finished: Mobilidade.Tests
-Mobilidade.Tests teste net10.0 êxito (2,6s)
-
-Resumo do teste: total: 4; falhou: 0; bem-sucedido: 4; ignorado: 0; duração: 2,6s
-```
-
-### 2. Com as duas verificações comentadas — falha
-
-```
-[xUnit.net 00:00:00.85] Mobilidade.Tests.IncidenteTests.Criar_ComSeveridadeNaoTriada_LancaArgumentException [FAIL]
-[xUnit.net 00:00:00.86] Assert.Throws() Failure: No exception was thrown
-[xUnit.net 00:00:00.86] Expected: typeof(System.ArgumentException)
-
-[xUnit.net 00:00:00.88] Mobilidade.Tests.IncidenteTests.Criar_ComSeveridadeForaDoEnum_LancaArgumentException [FAIL]
-[xUnit.net 00:00:00.88] Assert.Throws() Failure: No exception was thrown
-[xUnit.net 00:00:00.88] Expected: typeof(System.ArgumentException)
-
-Resumo do teste: total: 4; falhou: 2; bem-sucedido: 2; ignorado: 0; duração: 3,1s
+./backend/src/Mobilidade.Domain/ValueObjects/Periodo.cs:3:public sealed record Periodo
+./backend/src/Mobilidade.Domain/ValueObjects/Periodo.cs:8:    public Periodo(DateTime inicio, DateTime? fim = null)
+./backend/src/Mobilidade.Tests/PeriodoTests.cs:8:public class PeriodoTests
+./backend/src/Mobilidade.Tests/PeriodoTests.cs:11:    public void Igualdade_DoisPeriodosComMesmasDatas_SaoIguais()
+./backend/src/Mobilidade.Tests/PeriodoTests.cs:16:        var a = new Periodo(inicio, fim);
+./backend/src/Mobilidade.Tests/PeriodoTests.cs:17:        var b = new Periodo(inicio, fim);
+./backend/src/Mobilidade.Tests/PeriodoTests.cs:28:        Assert.Throws<ArgumentException>(() => new Periodo(inicio, fimInvalido));
+./backend/src/Mobilidade.Tests/PeriodoTests.cs:34:        var periodo = new Periodo(DateTime.UtcNow);
+./backend/src/Mobilidade.Tests/PeriodoTests.cs:45:        var periodo = new Periodo(inicio, fim);
 ```
 
-Com as duas verificações comentadas, tanto `NaoTriada` quanto um valor fora
-do enum foram aceitos pelo construtor sem erro. Isso prova que os dois
-testes detectam a ausência de cada regra especificamente, e não estão
-passando por acaso.
+**9 ocorrências**, só na própria classe `Periodo.cs` e no teste `PeriodoTests.cs`
+— nenhuma em `Incidente.cs`. Confirma que o VO existia isolado, sem uso no
+agregado.
 
-### 3. Com a proteção restaurada — passa de novo
+### Ciclo de teste — Periodo não inicializado (antes da integração)
 
-```
-[xUnit.net 00:00:00.21] Starting: Mobilidade.Tests
-[xUnit.net 00:00:01.60] Finished: Mobilidade.Tests
-Mobilidade.Tests teste net10.0 êxito (2,6s)
-
-Resumo do teste: total: 4; falhou: 0; bem-sucedido: 4; ignorado: 0; duração: 2,6s
+Comando:
+```bash
+dotnet test --filter Abrir_DeveTerPeriodoComInicioIgualDataHora
 ```
 
-> Saídas cortadas: removidos os avisos de build (NU1903, CS8618) e a lista
-> de projetos compilados, que se repetem nas execuções.
+Saída (com o campo `Periodo` apenas adicionado, sem integração real no
+construtor/`Abrir()`):
+
+```
+[xUnit.net 00:00:01.81]     Mobilidade.Tests.IncidenteTests.Abrir_DeveTerPeriodoComInicioIgualDataHora [FAIL]
+[xUnit.net 00:00:01.81]       Assert.NotNull() Failure: Value is null
+
+Resumo do teste: total: 1; falhou: 1; bem-sucedido: 0; ignorado: 0; duração: 2,9s
+```
+
+Depois da integração completa (`Periodo` substitui `DataHora`, construído
+dentro de `Abrir()`), o mesmo teste passa — prova que a integração real
+(não só a existência do campo) foi o que resolveu.
+
+### Estado da tabela "antes" (via sqlcmd, banco revertido pra migration anterior)
+
+Comando:
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Mobilidade#2026 -d MobilidadeDb -C -Q "SELECT Id, DataHora, Encerrado FROM Incidentes"
+```
+
+Saída:
+```
+Id          DataHora                               Encerrado
+----------- -------------------------------------- ---------
+          2            2026-09-03 00:00:00.0000000         0
+         13            2026-09-08 21:51:04.5823336         0
+         19            2026-09-09 13:49:35.0304101         0
+         21            2026-09-09 13:59:25.5020524         0
+         23            2026-09-09 14:12:58.3579565         0
+         25            2026-09-09 14:18:56.6264448         0
+         35            2026-09-09 15:27:03.7945376         0
+         37            2026-09-09 18:11:42.9615329         0
+         40            2026-09-10 11:03:29.9709755         0
+         41            2026-09-10 11:03:52.7277436         0
+         43            2026-09-10 13:06:54.1483226         0
+         47            2026-09-10 13:47:27.4719032         0
+         48            2026-09-10 10:00:00.0000000         0
+         49            2026-09-10 10:00:00.0000000         0
+         50            2026-09-10 10:00:00.0000000         0
+         51            2026-09-10 10:00:00.0000000         0
+         52            2026-09-10 10:00:00.0000000         0
+         53            2026-09-10 13:57:49.7116041         0
+         54            2026-09-10 15:48:09.5460470         0
+         55            2026-09-10 15:48:21.9884071         0
+         56            2026-09-10 16:23:38.5732274         0
+         57            2026-09-10 17:10:44.2750443         0
+         58            2026-09-10 18:57:11.0304526         0
+
+(23 rows affected)
+```
+
+### Migration aplicada — SQL executado (primeira aplicação)
+
+```
+Applying migration '20260914200312_IntegraPeriodoNoIncidente'.
+ALTER TABLE [Incidentes] ADD [Periodo_Fim] datetime2 NULL;
+UPDATE Incidentes SET Periodo_Fim = GETUTCDATE() WHERE Encerrado = 1
+[...DROP CONSTRAINT + DROP COLUMN Encerrado...]
+ALTER TABLE [Incidentes] DROP COLUMN [Encerrado];
+EXEC sp_rename N'[Incidentes].[DataHora]', N'Periodo_Inicio', 'COLUMN';
+Done.
+```
+
+### Migration revertida — SQL executado (rollback, para capturar "antes" real)
+
+```
+Reverting migration '20260914200312_IntegraPeriodoNoIncidente'.
+ALTER TABLE [Incidentes] DROP COLUMN [Periodo_Fim];
+EXEC sp_rename N'[Incidentes].[Periodo_Inicio]', N'DataHora', 'COLUMN';
+ALTER TABLE [Incidentes] ADD [Encerrado] bit NOT NULL DEFAULT CAST(0 AS bit);
+Done.
+```
+
+### Criação de incidente de teste com Encerrado = 1
+
+**O que se quer provar:** o `UPDATE` da migration só populava `Periodo_Fim`
+para incidentes com `Encerrado = 1` — mas o banco não tinha nenhum
+incidente nesse estado até este momento, então a migration nunca havia
+sido testada contra um caso real. Inserido manualmente um incidente com
+`Encerrado = 1` antes de reaplicar a migration.
+
+Comando:
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Mobilidade#2026 -d MobilidadeDb -C -Q "INSERT INTO Incidentes (DataHora, Tipo, Severidade, BairroId, Encerrado) VALUES ('2026-09-01T10:00:00', 0, 2, 1, 1)"
+```
+
+Saída:
+```
+(1 rows affected)
+```
+
+Confirmação do dado inserido:
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Mobilidade#2026 -d MobilidadeDb -C -Q "SELECT Id, DataHora, Encerrado FROM Incidentes WHERE Encerrado = 1"
+```
+
+```
+Id          DataHora                               Encerrado
+----------- -------------------------------------- ---------
+         59            2026-09-01 10:00:00.0000000         1
+
+(1 rows affected)
+```
+
+### Reaplicando a migration (Up de novo, com o caso de teste presente)
+
+Comando:
+```bash
+dotnet ef database update --project backend/src/Mobilidade.Infrastructure --startup-project backend/src/Mobilidade.Api
+```
+
+Trecho relevante da saída:
+```
+Applying migration '20260914200312_IntegraPeriodoNoIncidente'.
+ALTER TABLE [Incidentes] ADD [Periodo_Fim] datetime2 NULL;
+UPDATE Incidentes SET Periodo_Fim = GETUTCDATE() WHERE Encerrado = 1
+ALTER TABLE [Incidentes] DROP COLUMN [Encerrado];
+EXEC sp_rename N'[Incidentes].[DataHora]', N'Periodo_Inicio', 'COLUMN';
+Done.
+```
+
+### Estado da tabela "depois" — prova que o UPDATE afetou só o incidente certo
+
+Comando:
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Mobilidade#2026 -d MobilidadeDb -C -Q "SELECT Id, Periodo_Inicio, Periodo_Fim FROM Incidentes"
+```
+
+Saída (trecho relevante):
+```
+Id          Periodo_Inicio                         Periodo_Fim
+----------- -------------------------------------- --------------------------------------
+          2            2026-09-03 00:00:00.0000000  NULL
+         13            2026-09-08 21:51:04.5823336  NULL
+         ...
+         58            2026-09-10 18:57:11.0304526  NULL
+         59            2026-09-01 10:00:00.0000000  2026-09-15 13:35:34.9033333
+
+(24 rows affected)
+```
+
+**Confirmado:** somente o Id 59 (o único com `Encerrado = 1` antes da
+migration) recebeu `Periodo_Fim` preenchido. Os outros 23 incidentes,
+que já estavam abertos, permaneceram com `Periodo_Fim = NULL` — provando
+que o `UPDATE ... WHERE Encerrado = 1` afetou exatamente e apenas o caso
+esperado, não todo mundo.
 
 ### Por quê
 
-O construtor de Incidente é o que define o nascimento dele, e essas
-verificações precisam estar dentro dele já que o objeto necessita de
-severidade válida para nascer. `NaoTriada` é rejeitada por ser um
-"Severidade = null" disfarçado com valor. Valor fora do enum não passa por
-ser lixo estrutural — não é um valor de negócio, é corrupção de dado.
-
-## Migration: AdicionaEncerradoAoIncidente
-
-### Contexto
-
-A invariante 4 exige estado de encerramento no `Incidente`. Nova propriedade
-`Encerrado` (bool), com `private set`, protegida pelos métodos `Encerrar()`
-e `RegistrarAtendimento()`.
-
-### Comando
-
-```bash
-dotnet ef migrations add AdicionaEncerradoAoIncidente -s src/Mobilidade.Api -p src/Mobilidade.Infrastructure
-```
-
-### Migration gerada
-
-```csharp
-protected override void Up(MigrationBuilder migrationBuilder)
-{
-    migrationBuilder.AddColumn<bool>(
-        name: "Encerrado",
-        table: "Incidentes",
-        type: "bit",
-        nullable: false,
-        defaultValue: false);
-}
-
-protected override void Down(MigrationBuilder migrationBuilder)
-{
-    migrationBuilder.DropColumn(
-        name: "Encerrado",
-        table: "Incidentes");
-}
-```
-
-### Aplicando ao banco
-
-```bash
-dotnet ef database update -s src/Mobilidade.Api -p src/Mobilidade.Infrastructure
-```
-
-Confirmação via `dotnet ef migrations list`:
-
-```bash
-dotnet ef migrations list -s src/Mobilidade.Api -p src/Mobilidade.Infrastructure
-```
-
-```
-20260902183546_CreateIncidentesAndBairros
-20260903185136_AtendimentoTable
-20260903212651_SeveridadeObrigatoria
-20260909181119_AdicionaEncerradoAoIncidente
-```
-
-A migration aparece no `__EFMigrationsHistory`, confirmando que está aplicada.
-
-### Por quê
-
-`defaultValue: false` marca os incidentes legados como abertos, mesmo sem
-saber o estado real deles. Essa escolha é reversível: se um incidente já
-estava resolvido, basta chamar `Encerrar()` nele. A alternativa — assumir
-encerrado — seria irreversível na prática, porque a invariante 4 bloqueia
-`RegistrarAtendimento` em incidentes encerrados; um incidente ainda ativo
-marcado como encerrado por engano ficaria travado sem poder receber
-atendimento novo.
-
-## Invariante 1: Incidente nasce com pelo menos um Atendimento
-
-### O que se quer provar
-
-Prova que todo `Incidente` criado tem pelo menos um `Atendimento` associado
-desde o nascimento.
-
-Regra protegida estruturalmente: o construtor de `Incidente` é `private`
-(`src/Mobilidade.Domain/Modelos/Incidente.cs`). O único caminho de criação
-é o factory method `Incidente.Abrir(...)`, que monta o `Atendimento`
-inicial antes de devolver o objeto.
-Teste em `src/Mobilidade.Tests/IncidenteTests.cs`.
-
-### Comando
-
-```bash
-dotnet test --filter IncidenteTests
-```
-
-### Resultado
-
-```
-Resumo do teste: total: 7; falhou: 0; bem-sucedido: 7; ignorado: 0; duração: 3,8s
-```
-
-### Por que não há ciclo comentar/falhar/descomentar aqui
-
-Nas invariantes 2 e 3, a prova é por **tentativa de violação**: o teste
-tenta criar um estado inválido e espera uma exceção; comentar a checagem
-faz o teste falhar, provando que ele detecta a ausência da regra.
-
-A invariante 1 é protegida de outra forma: como o construtor de `Incidente`
-é `private`, não existe nenhum código possível — nem um teste — que consiga
-tentar `new Incidente(...)` sem passar por `Abrir`. A violação não é
-apenas rejeitada em runtime, ela é **impossível de compilar**. Não há
-linha de `if/throw` para comentar porque a proteção não é uma checagem,
-é a ausência de qualquer caminho alternativo.
-
-O teste `Abrir_SempreCriaComPeloMenosUmAtendimento` prova o lado positivo:
-que o único caminho existente sempre cumpre a regra.
-
-### Por quê
-
-Antes, a garantia dependia de todo código que criasse um Incidente passar
-pelo `ServicoAberturaIncidente`. Isso não era protegido de verdade: o
-`RepositorioIncidentesEmMemoria` e o `ImportadorIncidentesCsv` criavam
-incidentes direto, sem atendimento, e ninguém percebia até o build quebrar
-depois da mudança. Com o construtor `private`, essa dependência de
-disciplina desaparece — não existe caminho de criação fora de `Abrir`.
-
-## Domain sem dependência de Application/Infrastructure
-
-### O que se quer provar
-
-`Mobilidade.Domain` não referencia `Mobilidade.Application` nem
-`Mobilidade.Infrastructure` — a camada de domínio não depende de nada
-externo a ela.
-
-### Comando
-
-```bash
-dotnet list src/Mobilidade.Domain reference
-```
-
-### Saída
-
-```
-Não há nenhuma referência Projeto para Projeto no projeto src/Mobilidade.Domain.
-```
-
-Nenhuma referência listada — `Domain` depende apenas do próprio .NET.
-
----
-
-## Regras movidas — Semana 5
-
-### Regra 1: Incidente nasce com pelo menos um Atendimento
-
-**Qual regra:** todo incidente precisa nascer com um atendimento inicial —
-não pode existir incidente órfão, sem nenhum atendimento associado.
-
-**Onde estava (antes):** `ServicoAberturaIncidente.Executar`, em
-`src/Mobilidade.Infrastructure/Servicos/ServicoAberturaIncidente.cs`,
-linha 19, commit `cfddb83`. A regra era garantida por uma **transação
-manual**: incidente e atendimento eram salvos em dois `SaveChangesAsync()`
-separados, com rollback se o segundo falhasse — mas nada impedia que
-outro código criasse um `Incidente` sem nunca passar por esse serviço.
-
-```csharp
-public async Task<Incidente> Executar(Atendimento atendimento, Incidente incidente)
-{
-    using var transacao = await _contexto.Database.BeginTransactionAsync();
-    try
-    {
-        _contexto.Incidentes.Add(incidente);
-        await _contexto.SaveChangesAsync();
-
-        _contexto.Atendimentos.Add(atendimento);
-        await _contexto.SaveChangesAsync();
-
-        await transacao.CommitAsync();
-        return incidente;
-    }
-    catch
-    {
-        await transacao.RollbackAsync();
-        throw;
-    }
-}
-```
-
-**Onde está agora:** `Incidente.Abrir(...)`, factory method estático em
-`src/Mobilidade.Domain/Modelos/Incidente.cs`, linha 46. O construtor de
-`Incidente` é `private` — não existe caminho de criação fora de `Abrir`, e
-`Abrir` sempre monta o `Atendimento` inicial antes de devolver o objeto.
-`AbrirIncidente.Executar`, em
-`src/Mobilidade.Application/CasosDeUso/AbrirIncidente.cs`, chama `Abrir`
-e persiste com um único `SaveChanges()`.
-
-**Por quê:** a transação manual virou redundante — um único `SaveChanges()`
-já é atômico por padrão no EF Core. Mas o problema real da versão antiga
-não era a transação, era a garantia: dependia de todo código lembrar de
-passar pelo serviço. Isso já tinha furado antes — `RepositorioIncidentesEmMemoria`
-e `ImportadorIncidentesCsv` criavam `Incidente` direto, sem atendimento.
-Com o construtor `private`, essa dependência de disciplina desaparece:
-não existe caminho de criação que não seja `Abrir`.
-
-### Regra 2: DataHora não pode ser alterada após a criação
-
-**Qual regra:** a data/hora de um incidente representa quando ele
-aconteceu — não é um dado editável depois de registrado.
-
-**Onde estava (antes):** `RepositorioIncidentesEfCore.Atualizar`, em
-`src/Mobilidade.Infrastructure/Repositorio/RepositorioIncidentesEfCore.cs`,
-linha 40, presente desde o commit `08b4033` (criação original) até o
-commit `c19cb5b`. O método sincronizava o campo livremente a partir do
-objeto recebido:
-
-```csharp
-existente.DataHora = incidente.DataHora;
-```
-
-Nada impedia que uma chamada a `Atualizar` reescrevesse quando o
-incidente aconteceu.
-
-**Onde está agora:** `DataHora` tem `private set` em
-`src/Mobilidade.Domain/Modelos/Incidente.cs`, linha 24. Só é atribuída
-dentro do construtor, na criação. A linha foi removida do `Atualizar` no
-commit `c19cb5b`, e o C# não compila mais uma tentativa de reatribuição
-de fora da classe.
-
-**Por quê:** um incidente registra o que aconteceu. Se `DataHora` pudesse
-mudar depois, o registro deixaria de ser confiável como histórico —
-alguém poderia reescrever quando um incidente ocorreu sem deixar rastro.
-Se a data estiver errada, a correção deveria ser um novo registro ou uma
-operação nomeada, não uma edição silenciosa de campo.
-
-### Regra 3: Severidade não pode ser alterada após a criação
-
-**Qual regra:** a severidade avaliada na abertura do incidente não é
-editável depois — reclassificar exigiria um método de domínio nomeado,
-não uma atribuição livre.
-
-**Onde estava (antes):** `RepositorioIncidentesEfCore.Atualizar`, em
-`src/Mobilidade.Infrastructure/Repositorio/RepositorioIncidentesEfCore.cs`,
-linha 42, presente desde o commit `08b4033` até o commit `a606eff`. O
-método sincronizava o campo livremente:
-
-```csharp
-existente.Severidade = incidente.Severidade;
-```
-
-Qualquer chamada a `Atualizar` conseguia reescrever a severidade, sem
-nenhuma validação ou rastro de que ela mudou.
-
-**Onde está agora:** `Severidade` tem `private set` em
-`src/Mobilidade.Domain/Modelos/Incidente.cs`, linha 38, atribuída só no
-construtor. A linha foi removida do `Atualizar` no commit `a606eff`.
-
-**Por quê:** se a situação de um incidente mudou a ponto de justificar
-outra severidade, isso é informação nova sobre o mesmo incidente — o
-lugar certo para ela é um novo `Atendimento` registrado, não uma
-sobrescrita do valor original. Sobrescrever apaga o fato de que, no
-momento da abertura, aquela foi a avaliação feita. Reclassificar apaga
-histórico; registrar um atendimento novo o preserva.
-
----
-
-## Regressão — refatoração de camadas (Semana 5)
-
-### O que se quer provar
-
-Os testes que já passavam antes da refatoração (mover a orquestração de
-`ServicoAberturaIncidente` em Infrastructure para `AbrirIncidente`,
-`EncerrarIncidente`, `RegistrarAtendimento` em Application, e fechar
-`Atendimento` com setters privados) continuam passando depois.
-
-### Antes da refatoração
-
-```bash
-dotnet test
-```
-
-```
-Resumo do teste: total: 14; falhou: 0; bem-sucedido: 14; ignorado: 0;
-```
-
-### Depois da refatoração
-
-```bash
-dotnet test
-```
-
-```
-Resumo do teste: total: 13; falhou: 0; bem-sucedido: 13; ignorado: 0; duração: 4,6s
-Construir êxito(s) com 5 aviso(s) em 11,5s
-```
-
-### Por que o total mudou de 14 para 13
-
-`ServicoAberturaIncidenteTests.cs` foi removido junto com
-`ServicoAberturaIncidente.cs` (a classe redundante que ele testava — a
-transação manual virou desnecessária quando `Incidente.Abrir` passou a
-montar o agregado inteiro antes de qualquer `SaveChanges`). O cenário que
-esse teste cobria — rollback ao falhar a gravação do `Atendimento` — não
-desapareceu: hoje, se a gravação falhar, nada é persistido, porque é um
-único `SaveChanges()` atômico. O teste antigo não foi substituído por um
-equivalente novo por causa do prazo; fica registrado aqui como dívida.
+- **`Periodo` substitui `DataHora`, `Encerrado` vira `Periodo.EstaEmAberto`:**
+  manter os dois (`Encerrado` bool + informação de fim) duplicava estado
+  que podia dessincronizar (alguém marcar `Encerrado = true` sem atualizar
+  a data, ou vice-versa). `Periodo.Fim == null` já expressa "ainda aberto"
+  sem precisar de um campo redundante.
+- **`Periodo` é imutável:** `Encerrar()` não muta o objeto `Periodo`
+  existente — cria um novo (`new Periodo(Periodo.Inicio, DateTime.UtcNow)`)
+  e substitui a referência. O `Periodo` antigo nunca é alterado.
+- **Validação de "não pode ser futuro" fica em `Incidente.Abrir()`, não em
+  `Periodo`:** essa é uma regra do domínio de incidente, não do conceito
+  genérico de período — um "período de agendamento", por exemplo, poderia
+  legitimamente começar no futuro.
+- **`RegistrarAtendimento` não valida data futura:** diferente de
+  `Incidente`, um `Atendimento` pode representar agendamento futuro (ex:
+  equipe programada para atuar no dia seguinte). Validar "não pode ser
+  futuro" aqui bloquearia um cenário legítimo do negócio.
+- **`OwnsOne` em vez de `Property()` no EF Core:** `Property()` mapeia
+  valores escalares simples; `Periodo` é um Value Object com dois campos
+  internos (`Inicio`, `Fim`). Confirmado experimentalmente — `Property()`
+  falha em runtime com `"could not be mapped because the database
+  provider does not support this type"` ao rodar `dotnet ef migrations
+  add`.
+- **Construtor vazio (`private Incidente() { }`) adicionado:** o EF Core
+  não consegue passar um owned type (`Periodo`) como argumento de
+  construtor ao materializar a entidade a partir do banco — só sabe
+  preencher propriedades depois de instanciada. O construtor vazio existe
+  só para essa materialização; nunca é chamado pelo código de domínio
+  (que sempre passa por `Abrir()`, com suas validações).
+- **`Periodo_Fim = GETUTCDATE()` para incidentes já encerrados:** o
+  sistema antigo guardava só um `bool Encerrado`, sem registrar a data
+  real do encerramento. Não há como recuperar essa informação — qualquer
+  valor escolhido é uma aproximação. Consideradas três opções: (1) data
+  do momento da migration, (2) data do último atendimento registrado, (3)
+  deixar `null` (reabre os incidentes). A opção 2 foi rejeitada por
+  assumir uma relação causal que pode não existir, e por quebrar em
+  incidentes sem nenhum atendimento. A opção 3 foi rejeitada por mudar
+  silenciosamente o estado de negócio de incidentes já fechados. Escolhida
+  a opção 1: não finge saber o que não se sabe, e representa um marco real
+  e rastreável (o momento em que o dado foi migrado).
+- **`UPDATE` executado antes do `DropColumn Encerrado`:** a coluna
+  `Encerrado` precisa existir no momento do `WHERE Encerrado = 1` — se
+  dropada antes, o filtro perde a fonte de dado necessária para saber
+  quais incidentes migrar.
