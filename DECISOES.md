@@ -408,3 +408,45 @@ equipe programada pra atuar no dia seguinte); bloquear isso restringiria
 um cenário legítimo do negócio
 Consequência: diferente de Incidente, que não pode nascer no futuro,
 Atendimento pode.
+
+## 12. Rotação de credencial exposta (senha do SQL Server local)
+
+**O que foi decidido**
+
+A senha do usuário `sa` do SQL Server local foi vazada publicamente no
+Git (commitada em `EVIDENCIAS.md`, `appsettings.json` e como valor default
+em `docker-compose.yml`). A senha foi trocada via `ALTER LOGIN`, sem
+perda de dados. `docker-compose.yml` passou a usar um placeholder
+não-funcional (`changeme`) como default, forçando a senha real a vir
+exclusivamente do `.env` (já ignorado pelo Git).
+
+**Alternativa considerada**
+
+Deixar a senha antiga e só reescrever o histórico do Git para removê-la
+dos commits.
+
+**Por que foi rejeitada**
+
+Reescrever histórico não invalida uma credencial que já pode ter sido
+vista, clonada ou indexada por qualquer ferramenta — só troca visual,
+não segurança real. A senha precisava parar de funcionar, não só parar
+de aparecer.
+
+**O que mudaria de ideia**
+
+Nenhum cenário razoável — credencial vazada sempre deve ser trocada,
+independente de reescrever histórico ou não.
+
+**Pendências**
+
+- `appsettings.json`/`appsettings.Development.json` ainda têm a senha
+  antiga cravada e precisam ser atualizados (aplicação está quebrada até
+  isso ser corrigido).
+- Histórico do Git ainda contém a senha antiga em commits passados — ela
+  não dá mais acesso a nada, mas o rastro continua.
+
+**Evidência**
+
+Confirmado via `sqlcmd`: senha antiga rejeitada com "Login failed for
+user 'sa'" após a troca; senha nova autentica normalmente e os 24
+incidentes existentes permanecem intactos.
