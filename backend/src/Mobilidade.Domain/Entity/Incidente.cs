@@ -1,4 +1,5 @@
 using Mobilidade.Domain.ValueObjects;
+using Mobilidade.Domain.Eventos;
 
 namespace Mobilidade.Domain.Entity;
 
@@ -13,6 +14,9 @@ public enum TipoIncidente
 }
 public sealed class Incidente
 {
+    public void LimparEventos() => _eventos.Clear();
+    private readonly List<object> _eventos = new();
+    public IReadOnlyCollection<object> Eventos => _eventos;
     private Incidente() { }
     public Periodo Periodo { get; private set; }
     public int Id { get; set; }
@@ -44,7 +48,6 @@ public sealed class Incidente
         string orgaoResponsavel,
         string situacao)
     {
-
         var periodo = new Periodo(dataHora);
         var incidente = new Incidente(periodo, severidade)
         {
@@ -55,7 +58,14 @@ public sealed class Incidente
         var atendimento = new Atendimento(incidente.Id, orgaoResponsavel, periodo.Inicio, situacao);
         atendimento.Incidente = incidente;
         incidente._atendimentos.Add(atendimento);
+
+
         return incidente;
+    }
+    public void RegistrarIncidenteAberto()
+    {
+        var incidenteAberto = new IncidenteAberto(Id, Severidade, Periodo.Inicio);
+        _eventos.Add(incidenteAberto);
     }
 
     public void Encerrar()
@@ -64,8 +74,11 @@ public sealed class Incidente
         {
             throw new InvalidOperationException("Incidente já foi encerrado");
         }
+
         Periodo = new Periodo(Periodo.Inicio, DateTime.UtcNow);
+        _eventos.Add(new IncidenteEncerrado(Id, DateTime.UtcNow));
     }
+
     public void RegistrarAtendimento(DateTime dataHora, string orgaoResponsavel, string situacao)
     {
         if (!Periodo.EstaEmAberto)
@@ -76,6 +89,7 @@ public sealed class Incidente
         {
             atendimento.Incidente = this;
             _atendimentos.Add(atendimento);
+            _eventos.Add(new AtendimentoRegistrado(Id, orgaoResponsavel, dataHora));
         }
     }
 }

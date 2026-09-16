@@ -450,3 +450,98 @@ independente de reescrever histórico ou não.
 Confirmado via `sqlcmd`: senha antiga rejeitada com "Login failed for
 user 'sa'" após a troca; senha nova autentica normalmente e os 24
 incidentes existentes permanecem intactos.
+
+## 13. Onde morar Registro de Eventos?
+
+**Oque foi decidido**
+
+Criação da pasta Eventos dentro de Mobilidade.Domain, contendo os três
+records de evento (IncidenteAberto, AtendimentoRegistrado,
+IncidenteEncerrado).
+
+**Alternativa considerada**
+Colocar os records de evento (IncidenteAberto, AtendimentoRegistrado, IncidenteEncerrado) em Mobilidade.Application em vez de Mobilidade.Domain.
+
+**Por que foi rejeitada**
+Se IncidenteAberto reside na Application e `Incidente.cs` tentasse criar um IncidenteAberto, Domain estaria tentando usar uma camada que fica acima dele na hierarquia de dependencia - O que é proibido, pela razão que inverteria a seta.
+(Domain que não depende de ninguém teria que passar a depender da Application)
+
+**O que mudaria de ideia**
+Mudaria de ideia se o evento precisasse carregar dado de infraestrutura,
+(ex: informação de transporte HTTP, fila) dentro dele — nesse caso, deixaria de ser um fato puro de domínio
+
+**Evidência**
+```
+dotnet build, saída completa: "Construir êxito(s) com 7 aviso(s) em 6,1s",
+com Mobilidade.Domain, Application, Infrastructure, Tests e Api
+compilando sem erro, eventos já referenciados em Incidente.cs.
+```
+
+## 14. Tempo de emissão de IncidenteAberto
+
+**O que foi decidido**
+IncidenteAberto não é emetido dentro de `Abrir()` e sim via metodo separado - `RegistrarIncidenteAberto()` (chamado depois de `Salvar()` )
+
+**Alternativa considerada**
+Salvar dentro de Abrir (sem passar Id de Incidente).
+Criar o Id de Incidente via Guid (independente do banco).
+Handler montar IncidenteAberto sozinho, direto do command, sem passar
+pela lista _eventos do agregado.
+
+**Por que foi rejeitada**
+Salvar dentro de `Abrir()` exigiria que `Domain` chamasse o repositório,
+mas a direção da dependência entre Domain e Infrastructure/repositório
+seria violada (Domain não depende de nada, Infrastructure depende de
+Domain — a seta não pode inverter). Mesmo que fosse possível, salvar o
+incidente antes de criar o atendimento reabriria o problema que a
+decisão #4 resolveu: se `new Atendimento(...)` falhasse depois do
+incidente já salvo, ficaria um incidente no banco sem atendimento —
+exatamente o cenário que o construtor privado existe pra impedir.
+
+Trocar int por Guid é migration que mexe em toda FK, no Atendimento, na
+Auditoria nova, nos DTOs, nos testes — custo desproporcional ao problema
+pontual do momento de emissão de um único evento.
+
+Se o handler montasse IncidenteAberto sozinho, usando os dados do
+command (ex: cmd.Severidade) em vez dos dados do próprio agregado, o
+handler passaria a decidir o que conta como fato de domínio — invertendo
+quem é dono dessa responsabilidade. Isso é arriscado porque cmd.Severidade
+não passa pela validação que o domínio aplica dentro de Abrir() (o
+if (severidade == Severidade.NaoTriada) throw ...); um evento montado
+direto do command poderia divergir do que o Incidente de fato validou e
+guardou. Além disso, o handler precisaria conhecer campos que hoje são
+privados dentro de Incidente, quebrando o encapsulamento que protege o
+agregado.
+
+
+**O que mudaria de ideia**
+Se o projeto crescesse ao ponto do custo migrar para `Guid` deixar de ser desproporcional ou se surgisse uma nescesseidade real de gerar o Id sem depender do banco
+
+**Evidência**
+
+dotnet build (saída completa abaixo) — confirma que o método compila e
+integra corretamente com os três eventos e o restante do domínio.
+
+Saída do build: 
+```                                                                                                                                                                                                                                                                                                            
+Restaurar êxito(s) com 1 aviso(s) em 0,9s                                                                                                                                                                                                                                                                                   
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Api\Mobilidade.Api.csproj : warning NU1903: O pacote 'Microsoft.OpenApi' 2.0.0 tem uma alta vulnerabilidade de gravidade conhecida, https://github.com/advisories/GHSA-v5pm-xwqc-g5wc                                                       
+  Mobilidade.Domain net10.0 êxito(s) com 3 aviso(s) (0,8s) → src\Mobilidade.Domain\bin\Debug\net10.0\Mobilidade.Domain.dll                                                                                                                                                                                                  
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Domain\Entity\Atendimento.cs(14,12): warning CS8618: O propriedade não anulável 'Incidente' precisa conter um valor não nulo ao sair do construtor. Considere adicionar o modificador "obrigatório" ou declarar o propriedade como anulável.
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Domain\Entity\Incidente.cs(20,13): warning CS8618: O propriedade não anulável 'Periodo' precisa conter um valor não nulo ao sair do construtor. Considere adicionar o modificador "obrigatório" ou declarar o propriedade como anulável.    
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Domain\Entity\Incidente.cs(20,13): warning CS8618: O propriedade não anulável 'Severidade' precisa conter um valor não nulo ao sair do construtor. Considere adicionar o modificador "obrigatório" ou declarar o propriedade como anulável. 
+  Mobilidade.Application net10.0 êxito(s) com 2 aviso(s) (0,5s) → src\Mobilidade.Application\bin\Debug\net10.0\Mobilidade.Application.dll                                                                                                                                                                                   
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Application\Consultas\RelatorioConsultas.cs(26,83): warning CS8602: Desreferência de uma referência possivelmente nula.                                                                                                                     
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Application\Consultas\RelatorioConsultas.cs(42,27): warning CS8602: Desreferência de uma referência possivelmente nula.                                                                                                                     
+  Mobilidade.Infrastructure net10.0 êxito (1,7s) → src\Mobilidade.Infrastructure\bin\Debug\net10.0\Mobilidade.Infrastructure.dll                                                                                                                                                                                            
+  Mobilidade.Tests net10.0 êxito (0,7s) → src\Mobilidade.Tests\bin\Debug\net10.0\Mobilidade.Tests.dll                                                                                                                                                                                                                       
+  Mobilidade.Api net10.0 êxito(s) com 1 aviso(s) (2,1s) → src\Mobilidade.Api\bin\Debug\net10.0\Mobilidade.Api.dll                                                                                                                                                                                                           
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Api\Mobilidade.Api.csproj : warning NU1903: O pacote 'Microsoft.OpenApi' 2.0.0 tem uma alta vulnerabilidade de gravidade conhecida, https://github.com/advisories/GHSA-v5pm-xwqc-g5wc                                                       
+                                                                                                                                                                                                                                                                                                                            
+Construir êxito(s) com 7 aviso(s) em 6,1s                                                                                                                                                                                                                                                                                   
+```
+
+Pendente: teste de integração confirmando que RegistrarIncidenteAberto(),
+chamado após Salvar(), adiciona IncidenteAberto em Eventos com o Id real
+preenchido pelo EF Core. Sem esse teste, a decisão está implementada mas
+não verificada em runtime.
