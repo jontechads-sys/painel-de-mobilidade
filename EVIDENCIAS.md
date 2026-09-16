@@ -592,37 +592,6 @@ Id          DataHora                               Encerrado
 (23 rows affected)
 ```
 
-### Tentativa rejeitada: mapear Periodo com Property() direto
-
-**O que se quer provar:** antes de usar `OwnsOne`, a primeira tentativa foi
-mapear `Periodo` como se fosse um valor escalar simples, com
-`builder.Property(i => i.Periodo).IsRequired();`. Isso compila normalmente
-(o C# não sabe, em tempo de compilação, que o tipo é inadequado para o
-provider), mas falha em runtime.
-
-Comando:
-```bash
-dotnet ef migrations add TesteMapeamentoPeriodo --project backend/src/Mobilidade.Infrastructure --startup-project backend/src/Mobilidade.Api
-```
-
-Saída (erro):
-```
-Unable to create a 'DbContext' of type 'IncidentesDbContext'. The exception
-'The 'Periodo' property 'Incidente.Periodo' could not be mapped because the
-database provider does not support this type. Consider converting the
-property value to a type supported by the database using a value converter.
-See https://aka.ms/efcore-docs-value-converters for more information.
-Alternately, exclude the property from the model using the '[NotMapped]'
-attribute or by using 'EntityTypeBuilder.Ignore' in 'OnModelCreating'.' was
-thrown while attempting to create an instance.
-```
-
-Confirma que `dotnet build` sozinho não é suficiente para validar mapeamento
-de Value Objects no EF Core — só o comando de migration força o EF a
-tentar interpretar o modelo de fato. Corrigido substituindo por
-`builder.OwnsOne(i => i.Periodo, periodoBuilder => { ... })`, documentado
-na seção "Por quê" abaixo.
-
 ### Migration aplicada — SQL executado (primeira aplicação)
 
 ```
@@ -764,3 +733,49 @@ esperado, não todo mundo.
   `Encerrado` precisa existir no momento do `WHERE Encerrado = 1` — se
   dropada antes, o filtro perde a fonte de dado necessária para saber
   quais incidentes migrar.
+---
+
+## Semana 6: Eventos de domínio — ciclo de verificação do teste
+
+### Teste: Encerrar_IncidenteAberto_AdicionaEventoNaLista
+
+Objetivo: provar que Encerrar() adiciona um IncidenteEncerrado em
+_eventos quando chamado num incidente aberto.
+
+**1. Com a linha `_eventos.Add(new IncidenteEncerrado(Id, DateTime.UtcNow));`
+comentada em Incidente.cs — teste deveria falhar:**
+```
+Mobilidade.Tests teste net10.0 falhou com 1 erro(s) (1,2s)
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Tests\IncidenteTests.cs(87): error TESTERROR:
+      Mobilidade.Tests.IncidenteTests.Encerrar_IncidenteAberto_AdicionaEventoNaLista (16ms): Mensagem de erro: Assert.Single() Failure: The collection was empty
+      Rastreamento de pilha:
+         at Mobilidade.Tests.IncidenteTests.Encerrar_IncidenteAberto_AdicionaEventoNaLista() in C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Tests\IncidenteTests.cs:line 87
+         at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+         at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+Resumo do teste: total: 1; falhou: 1; bem-sucedido: 0; ignorado: 0; duração: 1,2s
+Construir falhou com1 erros e 4 avisos em 2,8s
+```
+
+**2. Linha descomentada, código original restaurado — teste deveria passar:**
+
+```
+Restaurar êxito(s) com 1 aviso(s) em 0,8s
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Api\Mobilidade.Api.csproj : warning NU1903: O pacote 'Microsoft.OpenApi' 2.0.0 tem uma alta vulnerabilidade de gravidade conhecida, https://github.com/advisories/GHSA-v5pm-xwqc-g5wc
+  Mobilidade.Domain net10.0 êxito(s) com 3 aviso(s) (0,2s) → src\Mobilidade.Domain\bin\Debug\net10.0\Mobilidade.Domain.dll
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Domain\Entity\Atendimento.cs(14,12): warning CS8618: O propriedade não anulável 'Incidente' precisa conter um valor não nulo ao sair do construtor. Considere adicionar o modificador "obrigatório" ou declarar o propriedade como anulável.
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Domain\Entity\Incidente.cs(20,13): warning CS8618: O propriedade não anulável 'Periodo' precisa conter um valor não nulo ao sair do construtor. Considere adicionar o modificador "obrigatório" ou declarar o propriedade como anulável.
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Domain\Entity\Incidente.cs(20,13): warning CS8618: O propriedade não anulável 'Severidade' precisa conter um valor não nulo ao sair do construtor. Considere adicionar o modificador "obrigatório" ou declarar o propriedade como anulável.
+  Mobilidade.Application net10.0 êxito (0,2s) → src\Mobilidade.Application\bin\Debug\net10.0\Mobilidade.Application.dll
+  Mobilidade.Infrastructure net10.0 êxito (0,1s) → src\Mobilidade.Infrastructure\bin\Debug\net10.0\Mobilidade.Infrastructure.dll
+  Mobilidade.Tests net10.0 êxito (0,2s) → src\Mobilidade.Tests\bin\Debug\net10.0\Mobilidade.Tests.dll
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.08]   Discovering: Mobilidade.Tests
+[xUnit.net 00:00:00.14]   Discovered:  Mobilidade.Tests
+[xUnit.net 00:00:00.17]   Starting:    Mobilidade.Tests
+[xUnit.net 00:00:00.24]   Finished:    Mobilidade.Tests
+  Mobilidade.Tests teste net10.0 êxito (1,2s)
+
+Resumo do teste: total: 1; falhou: 0; bem-sucedido: 1; ignorado: 0; duração: 1,2s
+Construir êxito(s) com 4 aviso(s) em 2,8s
+```
