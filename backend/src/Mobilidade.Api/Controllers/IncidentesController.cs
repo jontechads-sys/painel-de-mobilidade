@@ -35,7 +35,8 @@ public class IncidentesController : ControllerBase
             request.OrgaoResponsavel,
             request.Situacao);
 
-        return CreatedAtAction(nameof(BuscarPorId), new { id = incidenteCriado.Id }, incidenteCriado);
+        var incidenteCompleto = _repositorio.BuscarPorId(incidenteCriado);
+        return CreatedAtAction(nameof(BuscarPorId), new { id = incidenteCriado}, incidenteCompleto);
     }
 
     [HttpGet("{id}")]
@@ -87,8 +88,9 @@ public class IncidentesController : ControllerBase
     {
         try
         {
-            var incidente = _encerrarIncidente.Executar(id);
-            return Ok(incidente);
+            int incidenteId = _encerrarIncidente.Executar(id);
+            var incidenteCompleto = _repositorio.BuscarPorId(incidenteId);
+            return Ok(incidenteCompleto);
         }
         catch (KeyNotFoundException)
         {
@@ -105,9 +107,11 @@ public class IncidentesController : ControllerBase
     {
         try
         {
-            var incidente = _registrarAtendimento.Executar(
+            int incidenteId = _registrarAtendimento.Executar(
                 id, request.DataHora, request.OrgaoResponsavel, request.Situacao);
-            return Ok(incidente);
+
+            var incidenteCompleto = _repositorio.BuscarPorId(incidenteId);
+            return Ok(incidenteCompleto);
         }
         catch (KeyNotFoundException)
         {

@@ -13,7 +13,7 @@ public class RegistrarAtendimento
         _repositorio = repositorio;
     }
 
-    public Incidente Executar(
+    public int Executar(
         int id,
         DateTime dataHora,
         string orgaoReponsavel,
@@ -25,7 +25,7 @@ public class RegistrarAtendimento
             throw new KeyNotFoundException("Id inexistente no banco");
         }
         incidente.RegistrarAtendimento(dataHora, orgaoReponsavel, situacao);
-
-        return _repositorio.Salvar(incidente);
+        _repositorio.Salvar(incidente);
+        return incidente.Id;
     }
 }

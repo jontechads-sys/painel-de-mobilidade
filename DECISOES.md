@@ -541,7 +541,33 @@ Restaurar êxito(s) com 1 aviso(s) em 0,9s
 Construir êxito(s) com 7 aviso(s) em 6,1s                                                                                                                                                                                                                                                                                   
 ```
 
-Pendente: teste de integração confirmando que RegistrarIncidenteAberto(),
-chamado após Salvar(), adiciona IncidenteAberto em Eventos com o Id real
-preenchido pelo EF Core. Sem esse teste, a decisão está implementada mas
-não verificada em runtime.
+**Atualização — teste de integração confirmando o comportamento em runtime:**
+
+Teste: Executar_IncidenteValido_RegistraIncidenteAbertoComIdReal()
+Local: IncidenteTests.cs
+
+Saída do test:
+
+```
+λ dotnet test --filter Executar_IncidenteValido_RegistraIncidenteAbertoComIdReal
+Restaurar êxito(s) com 1 aviso(s) em 0,7s
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Api\Mobilidade.Api.csproj : warning NU1903: O pacote 'Microsoft.OpenApi' 2.0.0 tem uma alta vulnerabilidade de gravidade conhecida, https://github.com/advisories/GHSA-v5pm-xwqc-g5wc
+  Mobilidade.Domain net10.0 êxito (0,1s) → src\Mobilidade.Domain\bin\Debug\net10.0\Mobilidade.Domain.dll
+  Mobilidade.Application net10.0 êxito (0,1s) → src\Mobilidade.Application\bin\Debug\net10.0\Mobilidade.Application.dll
+  Mobilidade.Infrastructure net10.0 êxito (0,1s) → src\Mobilidade.Infrastructure\bin\Debug\net10.0\Mobilidade.Infrastructure.dll
+  Mobilidade.Tests net10.0 êxito(s) com 1 aviso(s) (0,6s) → src\Mobilidade.Tests\bin\Debug\net10.0\Mobilidade.Tests.dll
+    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Tests\IncidenteTests.cs(76,9): warning xUnit2013: Do not use Assert.Equal() to check for collection size. Use Assert.Single instead. (https://xunit.net/xunit.analyzers/rules/xUnit2013)
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.83]   Discovering: Mobilidade.Tests
+[xUnit.net 00:00:00.87]   Discovered:  Mobilidade.Tests
+[xUnit.net 00:00:00.90]   Starting:    Mobilidade.Tests
+[xUnit.net 00:00:02.04]   Finished:    Mobilidade.Tests
+  Mobilidade.Tests teste net10.0 êxito (4,2s)
+
+Resumo do teste: total: 1; falhou: 0; bem-sucedido: 1; ignorado: 0; duração: 4,2s
+Construir êxito(s) com 2 aviso(s) em 6,0s
+```
+
+Confirma que RegistrarIncidenteAberto(), chamado após Criar(), grava o
+evento IncidenteAberto com o IncidenteId igual ao Id real gerado — não
+mais 0. Resolve a lacuna que esta decisão havia deixado pendente.

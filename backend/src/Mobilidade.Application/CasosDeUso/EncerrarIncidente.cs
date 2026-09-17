@@ -13,7 +13,7 @@ public class EncerrarIncidente
         _repositorio = repositorio;
     }
 
-    public Incidente Executar(int id)
+    public int Executar(int id)
     {
         var incidente = _repositorio.BuscarPorId(id);
         if (incidente == null)
@@ -21,7 +21,7 @@ public class EncerrarIncidente
             throw new KeyNotFoundException("Id inexistente no banco");
         }
         incidente.Encerrar();
-
-        return _repositorio.Salvar(incidente);
+        _repositorio.Salvar(incidente);
+        return incidente.Id;
     }
 }

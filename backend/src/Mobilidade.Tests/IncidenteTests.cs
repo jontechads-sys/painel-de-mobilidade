@@ -1,8 +1,10 @@
 using Mobilidade.Domain.Entity;
 using Mobilidade.Domain.ValueObjects;
 using Mobilidade.Domain.Eventos;
+using Mobilidade.Infrastructure.Repositorio;
 
 using Xunit;
+using Mobilidade.Application.CasosDeUso;
 
 namespace Mobilidade.Tests;
 
@@ -86,5 +88,20 @@ public class IncidenteTests
         // TODO: verifica que esse item é do tipo IncidenteEncerrado
         Assert.Single(incidente.Eventos);
         Assert.IsType<IncidenteEncerrado>(incidente.Eventos.First());
+    }
+    [Fact]
+    public void Executar_IncidenteValido_RegistraIncidenteAbertoComIdReal()
+    {
+        var repositorio = new RepositorioIncidentesEmMemoria();
+        var abrirIncidente = new AbrirIncidente(repositorio);
+
+        var incidenteCriado = abrirIncidente.Executar(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Serviço Militar", "Em analise");
+
+        var incidenteBuscado = repositorio.BuscarPorId(incidenteCriado);
+        Assert.NotNull(incidenteBuscado);
+        Assert.IsType<IncidenteAberto>(incidenteBuscado.Eventos.First());
+
+        var evento = (IncidenteAberto)incidenteBuscado.Eventos.First();
+        Assert.Equal(evento.IncidenteId, incidenteBuscado.Id);
     }
 }
