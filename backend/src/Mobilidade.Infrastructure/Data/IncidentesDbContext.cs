@@ -14,6 +14,7 @@ public class IncidentesDbContext : DbContext
     public DbSet<Incidente> Incidentes { get; set; }
     public DbSet<Bairro> Bairros { get; set; }
     public DbSet<Atendimento> Atendimentos {get; set;}
+    public DbSet<Auditoria> Auditorias { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -22,5 +23,6 @@ public class IncidentesDbContext : DbContext
         modelBuilder.ApplyConfiguration(new IncidenteConfiguration());
         modelBuilder.ApplyConfiguration(new BairroConfiguration());
         modelBuilder.ApplyConfiguration(new AtendimentoConfiguration());
+        modelBuilder.ApplyConfiguration(new AuditoriaConfiguration());
     }
 }

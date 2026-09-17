@@ -53,6 +53,30 @@ namespace Mobilidade.Infrastructure.Migrations
                     b.ToTable("Atendimento", (string)null);
                 });
 
+            modelBuilder.Entity("Mobilidade.Domain.Entity.Auditoria", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Data")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("IncidenteId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Severidade")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidenteId");
+
+                    b.ToTable("Auditoria", (string)null);
+                });
+
             modelBuilder.Entity("Mobilidade.Domain.Entity.Bairro", b =>
                 {
                     b.Property<int>("Id")
@@ -107,6 +131,15 @@ namespace Mobilidade.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Incidente");
+                });
+
+            modelBuilder.Entity("Mobilidade.Domain.Entity.Auditoria", b =>
+                {
+                    b.HasOne("Mobilidade.Domain.Entity.Incidente", null)
+                        .WithMany()
+                        .HasForeignKey("IncidenteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Mobilidade.Domain.Entity.Incidente", b =>
