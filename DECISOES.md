@@ -571,3 +571,103 @@ Construir êxito(s) com 2 aviso(s) em 6,0s
 Confirma que RegistrarIncidenteAberto(), chamado após Criar(), grava o
 evento IncidenteAberto com o IncidenteId igual ao Id real gerado — não
 mais 0. Resolve a lacuna que esta decisão havia deixado pendente.
+
+## 15. FK de Auditoria com Restrict, não Cascade
+
+**O que foi decidido**
+A FK de Auditoria para Incidente usa DeleteBehavior.Restrict. Na prática,
+isso impede que um Incidente com registros de auditoria seja deletado.
+
+**Alternativa considerada**
+Usar Cascade, mesmo comportamento aplicado ao Atendimento — deletar o
+Incidente deletaria junto seus registros de auditoria.
+
+**Por que foi rejeitada**
+Auditoria existe para registrar que um incidente grave foi aberto, e
+para ser consultada depois. Com Cascade, deletar o incidente apagaria
+esse registro junto — ninguém conseguiria mais saber que aquele
+incidente existiu e foi auditado. Isso derrota o propósito da tabela.
+Diferente do Atendimento, onde Cascade faz sentido: atendimento sem
+incidente não significa nada.
+
+**O que mudaria de ideia**
+Se a tabela de Auditoria fosse um log temporário, sem propósito de
+rastreabilidade permanente — nesse caso, deletar o registro junto com
+o Incidente seria desejável, e Cascade faria sentido.
+
+**Evidência**
+
+SQL da migration gerada:
+```
+ Executed DbCommand (17ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT 1
+info: Microsoft.EntityFrameworkCore.Migrations[20411]
+      Acquiring an exclusive lock for migration application. See https://aka.ms/efcore-docs-migrations-lock for more information if this takes too long.
+Acquiring an exclusive lock for migration application. See https://aka.ms/efcore-docs-migrations-lock for more information if this takes too long.
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (18ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      DECLARE @result int;
+      EXEC @result = sp_getapplock @Resource = '__EFMigrationsLock', @LockOwner = 'Session', @LockMode = 'Exclusive';
+      SELECT @result
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (3ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      IF OBJECT_ID(N'[__EFMigrationsHistory]') IS NULL
+      BEGIN
+          CREATE TABLE [__EFMigrationsHistory] (
+              [MigrationId] nvarchar(150) NOT NULL,
+              [ProductVersion] nvarchar(32) NOT NULL,
+              CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+          );
+      END;
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT 1
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT OBJECT_ID(N'[__EFMigrationsHistory]');
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (13ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT [MigrationId], [ProductVersion]
+      FROM [__EFMigrationsHistory]
+      ORDER BY [MigrationId];
+info: Microsoft.EntityFrameworkCore.Migrations[20402]
+      Applying migration '20260917193445_CriaTabelaAuditoria'.
+Applying migration '20260917193445_CriaTabelaAuditoria'.
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (11ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      CREATE TABLE [Auditoria] (
+          [Id] int NOT NULL IDENTITY,
+          [IncidenteId] int NOT NULL,
+          [Severidade] int NOT NULL,
+          [Data] datetime2 NOT NULL,
+          CONSTRAINT [PK_Auditoria] PRIMARY KEY ([Id]),
+          CONSTRAINT [FK_Auditoria_Incidentes_IncidenteId] FOREIGN KEY ([IncidenteId]) REFERENCES [Incidentes] ([Id]) ON DELETE NO ACTION
+      );
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (3ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      CREATE INDEX [IX_Auditoria_IncidenteId] ON [Auditoria] ([IncidenteId]);
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (12ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+      VALUES (N'20260917193445_CriaTabelaAuditoria', N'10.0.11');
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (2ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      DECLARE @result int;
+      EXEC @result = sp_releaseapplock @Resource = '__EFMigrationsLock', @LockOwner = 'Session';
+      SELECT @result
+Done.
+```
+**LINHA RELEVANTE**
+
+'CONSTRAINT [FK_Auditoria_Incidentes_IncidenteId] FOREIGN KEY ([IncidenteId]) REFERENCES [Incidentes] ([Id]) ON DELETE NO ACTION'
+
+
+Saída dotnet ef database aplicada no banco:
+```
+λ dotnet ef migrations add CriaTabelaAuditoria --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api
+C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Api\Mobilidade.Api.csproj : warning NU1903: O pacote 'Microsoft.OpenApi' 2.0.0 tem uma alta vulnerabilidade de gravidade conhecida, https://github.com/advisories/GHSA-v5pm-xwqc-g5wc
+Build started...
+Build succeeded.
+The Entity Framework tools version '10.0.10' is older than that of the runtime '10.0.11'. Update the tools for the latest features and bug fixes. See https://aka.ms/AAc1fbw for more information.
+Done. To undo this action, use 'ef migrations remove'
+```
