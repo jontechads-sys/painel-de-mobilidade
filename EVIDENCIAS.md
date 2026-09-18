@@ -735,47 +735,177 @@ esperado, não todo mundo.
   quais incidentes migrar.
 ---
 
-## Semana 6: Eventos de domínio — ciclo de verificação do teste
+## Semana 6: Handler de evento — auditoria de incidente grave
 
-### Teste: Encerrar_IncidenteAberto_AdicionaEventoNaLista
+### O que se quer provar
 
-Objetivo: provar que Encerrar() adiciona um IncidenteEncerrado em
-_eventos quando chamado num incidente aberto.
+Quando um incidente de severidade `Alta` é aberto, um handler registra
+uma linha na tabela `Auditoria`. Quando a severidade é `Baixa` ou `Media`,
+nada acontece. A decisão é do handler
+(`RegistrarAuditoriaAoAbrirIncidenteGrave`), não do agregado — o
+`Incidente` emite `IncidenteAberto` para toda severidade e não sabe que
+alguém filtra.
 
-**1. Com a linha `_eventos.Add(new IncidenteEncerrado(Id, DateTime.UtcNow));`
-comentada em Incidente.cs — teste deveria falhar:**
+O despacho acontece em `AbrirIncidente.Executar`, depois de
+`_repositorio.Criar(incidente)`. Se a persistência falhar, nenhum evento
+é despachado.
+
+Testes em `src/Mobilidade.Tests/AuditoriaTest.cs`.
+
+### Comando
+
+```bash
+dotnet test --filter AuditoriaTests
 ```
-Mobilidade.Tests teste net10.0 falhou com 1 erro(s) (1,2s)
-    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Tests\IncidenteTests.cs(87): error TESTERROR:
-      Mobilidade.Tests.IncidenteTests.Encerrar_IncidenteAberto_AdicionaEventoNaLista (16ms): Mensagem de erro: Assert.Single() Failure: The collection was empty
-      Rastreamento de pilha:
-         at Mobilidade.Tests.IncidenteTests.Encerrar_IncidenteAberto_AdicionaEventoNaLista() in C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Tests\IncidenteTests.cs:line 87
-         at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
-         at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
 
-Resumo do teste: total: 1; falhou: 1; bem-sucedido: 0; ignorado: 0; duração: 1,2s
-Construir falhou com1 erros e 4 avisos em 2,8s
+### 1. Com o despacho comentado em `AbrirIncidente.cs` — falha
+
+Trecho comentado:
+
+```csharp
+// foreach (var evento in incidenteNovo.Eventos)
+//     _despachador.Publicar(evento);
 ```
 
-**2. Linha descomentada, código original restaurado — teste deveria passar:**
+Saída:
+```
+[xUnit.net 00:00:00.67] Mobilidade.Tests.AuditoriaTests.Executar_ComSeveridadeAlta_GeraUmRegistroDeAuditoria [FAIL]
+[xUnit.net 00:00:00.67] Assert.Single() Failure: The collection was empty
+[xUnit.net 00:00:00.67] Stack Trace:
+[xUnit.net 00:00:00.67] AuditoriaTest.cs(28,0): at Mobilidade.Tests.AuditoriaTests.Executar_ComSeveridadeAlta_GeraUmRegistroDeAuditoria()
+
+Resumo do teste: total: 2; falhou: 1; bem-sucedido: 1; ignorado: 0; duração: 1,5s
+Construir falhou com1 erros e 3 avisos em 3,2s
+```
+
+Sem o despacho, o evento `IncidenteAberto` fica acumulado na lista interna
+do agregado e é descartado por `LimparEventos()` — o handler nunca roda e
+nenhum registro de auditoria é criado. O teste de severidade `Alta` falha
+(`Assert.Single()` numa coleção vazia); o de severidade `Baixa` continua
+passando, o que confirma que ele mede a regra do handler e não a ausência
+de despacho.
+
+### 2. Com o despacho restaurado — passa
 
 ```
-Restaurar êxito(s) com 1 aviso(s) em 0,8s
-    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Api\Mobilidade.Api.csproj : warning NU1903: O pacote 'Microsoft.OpenApi' 2.0.0 tem uma alta vulnerabilidade de gravidade conhecida, https://github.com/advisories/GHSA-v5pm-xwqc-g5wc
-  Mobilidade.Domain net10.0 êxito(s) com 3 aviso(s) (0,2s) → src\Mobilidade.Domain\bin\Debug\net10.0\Mobilidade.Domain.dll
-    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Domain\Entity\Atendimento.cs(14,12): warning CS8618: O propriedade não anulável 'Incidente' precisa conter um valor não nulo ao sair do construtor. Considere adicionar o modificador "obrigatório" ou declarar o propriedade como anulável.
-    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Domain\Entity\Incidente.cs(20,13): warning CS8618: O propriedade não anulável 'Periodo' precisa conter um valor não nulo ao sair do construtor. Considere adicionar o modificador "obrigatório" ou declarar o propriedade como anulável.
-    C:\Users\Dell\Trabalhos\MOBILIDADE\painel-mobilidade\backend\src\Mobilidade.Domain\Entity\Incidente.cs(20,13): warning CS8618: O propriedade não anulável 'Severidade' precisa conter um valor não nulo ao sair do construtor. Considere adicionar o modificador "obrigatório" ou declarar o propriedade como anulável.
-  Mobilidade.Application net10.0 êxito (0,2s) → src\Mobilidade.Application\bin\Debug\net10.0\Mobilidade.Application.dll
-  Mobilidade.Infrastructure net10.0 êxito (0,1s) → src\Mobilidade.Infrastructure\bin\Debug\net10.0\Mobilidade.Infrastructure.dll
-  Mobilidade.Tests net10.0 êxito (0,2s) → src\Mobilidade.Tests\bin\Debug\net10.0\Mobilidade.Tests.dll
-[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.12)
-[xUnit.net 00:00:00.08]   Discovering: Mobilidade.Tests
-[xUnit.net 00:00:00.14]   Discovered:  Mobilidade.Tests
-[xUnit.net 00:00:00.17]   Starting:    Mobilidade.Tests
-[xUnit.net 00:00:00.24]   Finished:    Mobilidade.Tests
-  Mobilidade.Tests teste net10.0 êxito (1,2s)
+[xUnit.net 00:00:00.14] Starting: Mobilidade.Tests
+[xUnit.net 00:00:00.19] Finished: Mobilidade.Tests
+Mobilidade.Tests teste net10.0 êxito (1,0s)
 
-Resumo do teste: total: 1; falhou: 0; bem-sucedido: 1; ignorado: 0; duração: 1,2s
-Construir êxito(s) com 4 aviso(s) em 2,8s
+Resumo do teste: total: 2; falhou: 0; bem-sucedido: 2; ignorado: 0; duração: 1,0s
+Construir êxito(s) com 1 aviso(s) em 2,6s
 ```
+
+> Saídas cortadas: removidos os avisos de build (NU1903, CS8602) e a lista
+> de projetos compilados, que se repetem nas duas execuções.
+
+### Bug encontrado no caminho: `CriarIncidenteRequest` expunha o Value Object
+
+Ao tentar abrir um incidente pela API para capturar o estado real da tabela,
+o endpoint retornou 500:
+
+```
+System.NotSupportedException: Deserialization of types without a parameterless
+constructor, a singular parameterized constructor, or a parameterized constructor
+annotated with 'JsonConstructorAttribute' is not supported.
+Type 'Mobilidade.Domain.ValueObjects.Severidade'. Path: $.severidade
+```
+`CriarIncidenteRequest` recebia `Severidade` (o Value Object de domínio)
+diretamente no contrato HTTP. Como o `Severidade` tem construtor privado —
+proposital, para que só se possa obter uma instância via `DeInt` ou pelos
+valores estáticos — o `System.Text.Json` não consegue materializá-lo. O
+endpoint estava quebrado desde que `Severidade` deixou de ser enum.
+
+Corrigido fazendo o DTO receber `int` e converter na fronteira:
+
+```csharp
+// CriarIncidenteRequest.cs
+public sealed record CriarIncidenteRequest(
+    DateTime DataHora,
+    TipoIncidente Tipo,
+    int Severidade,
+    ...
+);
+
+// IncidentesController.Criar
+var severidade = Severidade.DeInt(request.Severidade);
+```
+
+### Estado da tabela `Auditoria` ANTES de abrir um incidente Alta
+
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SuaSenhaAqui" -d MobilidadeDb -C -Q "SELECT Id, IncidenteId, Severidade, Data FROM Auditoria"
+```
+Saída: 
+
+```
+Id IncidenteId Severidade Data
+
+(0 rows affected)
+```
+
+### Abrindo um incidente de severidade Alta pela API
+
+Caminho real, com o `Despachador` e o handler resolvidos pelo container de DI
+— não pelos fakes dos testes.
+
+```bash
+curl -X POST http://localhost:5041/api/Incidentes -H "Content-Type: application/json" -d "{\"dataHora\":\"2026-09-17T10:00:00\",\"tipo\":0,\"severidade\":2,\"bairroId\":1,\"descricao\":\"teste auditoria\",\"orgaoResponsavel\":\"Defesa Civil\",\"situacao\":\"Em analise\"}"
+```
+
+Saída:
+```
+{"eventos":[],"periodo":{"inicio":"2026-09-17T10:00:00","fim":null,"estaEmAberto":true,"duracao":null},"id":63,"tipo":0,"severidade":{"valor":2,"nome":"Alta"},"bairroId":1,"descricao":"teste auditoria","bairro":null,"atendimentos":[{"id":43,"incidenteId":63,"orgaoResponsavel":"Defesa Civil","dataHora":"2026-09-17T10:00:00","situacao":"Em analise","incidente":null}]}
+```
+
+O `"eventos":[]` na resposta é esperado: o caso de uso chama `LimparEventos()`
+após o despacho, e o objeto retornado vem de uma nova consulta ao banco.
+
+### Estado da tabela `Auditoria` DEPOIS
+```
+Id IncidenteId Severidade Data
+
+      3          63           2            2026-09-17 10:00:00.0000000
+
+(1 rows affected)
+```
+
+
+**Confirmado:** o `IncidenteId` gravado (63) é o mesmo Id que o SQL Server
+gerou para o incidente, e a severidade é 2 (`Alta`). O handler rodou pelo
+caminho real da aplicação — controller → caso de uso → repositório →
+despachador → handler → repositório de auditoria.
+
+### Por quê
+
+- **A regra de severidade vive no handler, não no agregado:** o `Incidente`
+  emite `IncidenteAberto` em toda abertura, sem saber quem escuta. Se o
+  filtro `Severidade != Alta` morasse no agregado, ele passaria a conhecer
+  a razão de existir da auditoria — exatamente o acoplamento que o evento
+  de domínio existe para evitar. Amanhã, um handler de notificação com
+  outro critério de severidade entra sem tocar no `Incidente`.
+- **O despacho acontece depois de `Criar()`, não antes:** o handler grava
+  na `Auditoria` uma linha com FK para `Incidentes`. Se o evento fosse
+  despachado antes da persistência, o `IncidenteId` não existiria no banco
+  e o INSERT violaria a FK. Além disso, uma falha na gravação do incidente
+  deixaria auditoria de algo que não aconteceu.
+- **`RegistrarIncidenteAberto()` é chamado após a persistência:** diferente
+  de `Encerrar()` e `RegistrarAtendimento()`, que emitem o evento dentro da
+  própria transição, o `IncidenteAberto` só pode ser construído depois que
+  o banco gera o `Id` (IDENTITY). Os demais dados do evento (severidade,
+  data) já existem desde `Abrir()`. O custo dessa escolha é que um caso de
+  uso novo precisa lembrar de chamar o método — aceito por ora, registrado
+  na decisão #15.
+- **`LimparEventos()` depois do despacho:** sem isso, um segundo `Salvar()`
+  na mesma instância redespacharia os mesmos eventos. A lista é um buffer
+  de uma transação, não um histórico.
+- **Os testes usam `DespachadorComManipuladores`, não o `Despachador` real:**
+  o fake entrega `IncidenteAberto` direto ao handler, sem `ServiceProvider`.
+  Testa a regra do handler e o ponto de despacho no caso de uso; o registro
+  no DI é o que a evidência via `sqlcmd` acima verifica.
+- **O endpoint `/api/incidentes/importar` não despacha eventos:** ele chama
+  `repositorio.Criar` direto, sem passar pelo caso de uso. Incidentes
+  importados por CSV não geram auditoria, mesmo com severidade `Alta`.
+  Deliberado — a importação é carga de dados histórica, não abertura de
+  incidente pelo domínio.
+

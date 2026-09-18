@@ -439,11 +439,12 @@ independente de reescrever histórico ou não.
 
 **Pendências**
 
-- `appsettings.json`/`appsettings.Development.json` ainda têm a senha
-  antiga cravada e precisam ser atualizados (aplicação está quebrada até
-  isso ser corrigido).
+- ~~`appsettings.json`/`appsettings.Development.json` com a senha antiga~~
+  — **resolvido na Semana 6**: connection string atualizada, aplicação
+  voltou a conectar (ver `EVIDENCIAS.md`, seção "Semana 6: Handler de
+  evento", onde o POST passou a gravar na tabela `Auditoria`).
 - Histórico do Git ainda contém a senha antiga em commits passados — ela
-  não dá mais acesso a nada, mas o rastro continua.
+  não dá mais acesso a nada, mas o rastro continua. **Em aberto.**
 
 **Evidência**
 
@@ -671,3 +672,183 @@ Build succeeded.
 The Entity Framework tools version '10.0.10' is older than that of the runtime '10.0.11'. Update the tools for the latest features and bug fixes. See https://aka.ms/AAc1fbw for more information.
 Done. To undo this action, use 'ef migrations remove'
 ```
+## 16. `Auditoria` sem propriedade de navegação para `Incidente`
+
+**O que foi decidido**
+
+A entidade `Auditoria` guarda `IncidenteId` como `int`, sem propriedade
+`Incidente Incidente { get; set; }`. A FK existe no banco — configurada
+explicitamente via `HasOne<Incidente>().WithMany()` em
+`AuditoriaConfiguration` — mas não há navegação nenhuma no modelo, nos
+dois sentidos: `Auditoria` não conhece `Incidente`, e `Incidente` não tem
+coleção de auditorias.
+
+A entidade também não expõe nenhum método de alteração: todas as
+propriedades têm `private set`, e o único caminho de criação é a factory
+`Auditoria.RegistrarAuditoria(...)`. O `IAuditoriaRepository` tem um
+método só, `Criar` — sem `Atualizar`, sem `Remover`.
+
+**Alternativa considerada**
+
+Adicionar a navegação nos dois lados, como já existe entre `Incidente` e
+`Atendimento` (`_atendimentos` no agregado, `Incidente` no `Atendimento`),
+permitindo carregar as auditorias de um incidente com `Include`.
+
+**Por que foi rejeitada**
+
+`Atendimento` faz parte do agregado `Incidente` — a invariante 1 diz que
+todo incidente nasce com um atendimento, então o agregado precisa
+enxergá-los. `Auditoria` é o oposto: é o registro de que algo foi
+observado sobre o incidente, escrito por um handler que o agregado não
+sabe que existe. Dar navegação ao `Incidente` significaria que carregar
+um incidente traria junto a auditoria dele, e que o agregado passaria a
+ter uma coleção que nenhum método seu manipula — estado pendurado, sem
+dono.
+
+A ausência de `Atualizar`/`Remover` no repositório segue o mesmo
+raciocínio da decisão #2 aplicada à auditoria: registro de auditoria que
+pode ser alterado depois deixa de servir como auditoria.
+
+**O que mudaria de ideia**
+
+Se surgisse uma consulta real que precisasse listar as auditorias de um
+incidente com frequência, a navegação (só do lado da `Auditoria`, nunca
+do `Incidente`) passaria a valer o custo. Hoje não existe essa consulta —
+a tabela é escrita e consultada diretamente, não navegada a partir do
+agregado.
+
+**Nota sobre o escopo da tabela**
+
+`Auditoria` hoje tem apenas `IncidenteId`, `Severidade` e `Data` — não há
+coluna de ação ou tipo de evento, porque existe um único handler
+escrevendo nela, e ele só reage a `IncidenteAberto`. Se um segundo handler
+passar a auditar outra transição (encerramento, por exemplo), a tabela
+precisará de uma coluna que distinga os registros, e de uma migration
+nova.
+
+**Evidência**
+
+`AuditoriaConfiguration.cs` (`HasOne<Incidente>().WithMany()`, sem
+navegação declarada). Entidade `Auditoria.cs` (construtor privado, factory
+estática, `private set` em todas as propriedades).
+`IAuditoriaRepository.cs` (um único método). SQL da migration
+`CriaTabelaAuditoria` na decisão #15, mostrando a FK criada sem que exista
+navegação no modelo.
+
+---
+
+## 17. Despachador de eventos escrito à mão, sem MediatR
+
+**O que foi decidido**
+
+O despacho de eventos é feito por um `Despachador` próprio, em
+`Mobilidade.Application/Eventos/`, com um `switch` sobre o tipo concreto
+do evento e um método genérico privado que resolve os handlers pelo
+`IServiceProvider`. O contrato dos handlers é
+`IManipuladorDeEvento<TEvento>`, síncrono, restrito a
+`TEvento : IEventoDeDominio`.
+
+A interface marcadora `IEventoDeDominio` (vazia) vive em
+`Mobilidade.Domain/Eventos/`, junto dos eventos; `IManipuladorDeEvento<T>`
+e o `Despachador` vivem em `Mobilidade.Application`. Nenhuma biblioteca de
+mediação foi adicionada — a única dependência nova é
+`Microsoft.Extensions.DependencyInjection.Abstractions`, no `Application`.
+
+**Alternativa considerada**
+
+1. MediatR (ou biblioteca equivalente), que resolve handlers por reflection
+   e já traz pipeline, notificações e registro automático por assembly.
+2. Despachador próprio, mas resolvendo o tipo por reflection
+   (`MakeGenericType` + `Invoke`), dispensando o `switch`.
+3. Despachador recebendo os handlers por construtor
+   (`IEnumerable<IManipuladorDeEvento<IncidenteAberto>>`, e assim por
+   diante), sem tocar no `IServiceProvider`.
+
+**Por que foi rejeitada**
+
+MediatR resolve um problema de escala que este projeto não tem: são três
+eventos e um handler. O `switch` inteiro tem vinte linhas e é legível de
+cima a baixo — trazer uma dependência externa, com seu próprio ciclo de
+versões e licenciamento, para substituir vinte linhas seria pagar caro por
+pouco.
+
+A reflection própria (alternativa 2) trocaria o `switch` por código que só
+falha em runtime: um evento sem handler registrado, ou um erro de
+montagem do tipo genérico, só apareceria com a aplicação rodando. O
+`switch` faz o compilador verificar cada caso, e o `default` que lança
+`InvalidOperationException` garante que um quarto evento criado sem entrada
+no despachador estoure imediatamente, em vez de ser ignorado em silêncio.
+
+A alternativa 3 seria a mais pura — `Application` não conheceria DI de
+forma alguma — mas com três eventos já exigiria três parâmetros no
+construtor, e cada evento novo mudaria a assinatura. O custo aceito em
+troca é que o `Despachador` usa `IServiceProvider`, o que é service
+locator; é um antipadrão reconhecido, e está concentrado numa única classe
+cuja razão de existir é justamente resolver handlers cujo tipo só se
+conhece a cada `case`.
+
+**Sobre o handler ser síncrono**
+
+`IManipuladorDeEvento<T>.Manipular` retorna `void`, não `Task`, porque
+`IIncidenteRepository` e `IAuditoriaRepository` são síncronos — todo o
+projeto é. Um handler `async` sem nada para aguardar geraria o aviso
+CS1998 e `async` de enfeite. Se um handler futuro precisar de I/O real
+(HTTP, fila), a interface muda para `Task` e os existentes acompanham.
+
+**O que mudaria de ideia**
+
+Se o número de eventos crescesse a ponto do `switch` virar manutenção
+recorrente — na casa de uma dezena ou mais, com handlers de vários tipos
+por evento — o custo de MediatR passaria a se justificar. O contrato
+`IManipuladorDeEvento<T>` foi desenhado para que essa troca seja possível
+sem mexer no agregado nem nos handlers: só o `Despachador` e o registro no
+DI mudariam.
+
+**Evidência**
+
+`Despachador.cs`, `IDespachadorDeEventos.cs`, `IManipuladorDeEvento.cs`,
+`IEventoDeDominio.cs`. Registro no `Program.cs`
+(`AddScoped<IDespachadorDeEventos, Despachador>()` e
+`AddScoped<IManipuladorDeEvento<IncidenteAberto>, RegistrarAuditoriaAoAbrirIncidenteGrave>()`).
+`EVIDENCIAS.md`, seção "Semana 6: Handler de evento — auditoria de
+incidente grave": ciclo comentar/descomentar do despacho, e a linha
+gravada na tabela `Auditoria` pelo caminho real da API, provando que o
+handler foi resolvido pelo container.
+
+## 18. Value Object não atravessa a fronteira HTTP
+
+**O que foi decidido**
+
+`CriarIncidenteRequest` recebe `int Severidade`, não o Value Object
+`Severidade`. A conversão acontece no controller, via `Severidade.DeInt`,
+na fronteira entre HTTP e domínio.
+
+**Alternativa considerada**
+
+Manter `Severidade` (o VO) no DTO e anotar seu construtor privado com
+`[JsonConstructor]`, ou escrever um `JsonConverter` customizado.
+
+**Por que foi rejeitada**
+
+`[JsonConstructor]` abriria o construtor privado que a decisão #5 fechou
+de propósito — qualquer `valor` poderia ser desserializado, incluindo um
+fora da lista fechada, furando o `DeInt`. O `JsonConverter` customizado
+resolveria isso corretamente, mas resolve o sintoma: o DTO continuaria
+acoplado ao tipo de domínio, e o contrato da API continuaria mudando
+sempre que o VO mudasse.
+
+Receber `int` deixa a fronteira explícita: o JSON carrega um número, o
+domínio carrega um Value Object, e a conversão (com validação) acontece
+num ponto único e visível.
+
+**O que mudaria de ideia**
+
+Se a API precisasse aceitar a severidade por nome (`"Alta"`) além do
+número, o `TryParse` que já existe no `Severidade` cobriria isso — ainda
+recebendo `string` no DTO, sem expor o VO.
+
+**Evidência**
+
+`EVIDENCIAS.md`, seção "Semana 6: Handler de evento" → "Bug encontrado no
+caminho", com a `NotSupportedException` completa do
+`System.Text.Json` e o antes/depois do DTO e do controller.
