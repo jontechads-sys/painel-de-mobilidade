@@ -255,6 +255,10 @@ risco de atrasar o que já estava pronto.
 Em outro cenário, dado início ou fim de semana "se possível", gostaria de
 implementar essa ideia e as demais que ficaram vagas nesse arquivo.
 
+**Atualização (Semana 6): dívida paga**
+
+Setter fechado, `MudarBairro(int)` criado como único caminho de alteração.
+Ver decisão #24.
 ---
 
 ## 8. Bairro.Nome permanece editável, sem proteção
@@ -282,6 +286,11 @@ o que já estava pronto.
 Quando surgir necessidade real de Bairro.Nome ser um catálogo — por
 exemplo, onde exatamente ficaria registrado esse incidente (estado,
 cidade, etc.).
+
+**Atualização (Semana 6): dívida já estava paga**
+
+Verificado por busca no código: `Nome` e `Id` já têm `private set`. Ver
+decisão #25.
 
 ---
 
@@ -1076,3 +1085,191 @@ completa.
 
 `ValidacaoDeBordaTests.cs` (7 casos), `DomainExceptionFilterTests.cs`
 (3 casos). `EVIDENCIAS.md` com as três requisições e respostas completas.
+
+## 24. `BairroId` fechado, com `MudarBairro` como único caminho
+
+**O que foi decidido**
+
+`Incidente.BairroId` passa a ter `private set`. A alteração acontece por
+`MudarBairro(int)`, que recusa a operação se o incidente estiver encerrado:
+
+```csharp
+public void MudarBairro(int bairroId)
+{
+    if (!Periodo.EstaEmAberto)
+        throw new DomainException("Incidente encerrado não pode ter o bairro alterado.");
+
+    BairroId = bairroId;
+}
+```
+
+Isto paga a dívida da decisão #7, que havia deixado o setter público por
+prazo.
+
+**Alternativa considerada**
+
+Fechar o setter sem método de substituição, removendo `BairroId` do
+`AtualizarIncidenteRequest` — tratando o bairro como fato consumado, do
+mesmo modo que a decisão #2 fez com `DataHora` e `Severidade`.
+
+**Por que foi rejeitada**
+
+Bairro digitado errado no cadastro é cenário real e corrigível, diferente
+de `DataHora` e `Severidade`: corrigir o bairro não reescreve o que
+aconteceu, corrige onde o sistema diz que aconteceu. O que a decisão #2
+protege é a impossibilidade de reescrever o fato sem rastro — e aqui o
+rastro é o próprio método nomeado, que só funciona enquanto o incidente
+está aberto. Incidente encerrado volta a ser imutável nesse campo.
+
+**O que mudaria de ideia**
+
+Se a correção de bairro precisasse ser auditável (quem mudou, quando, de
+qual bairro para qual), `MudarBairro` passaria a emitir um evento de
+domínio — `BairroCorrigido` — em vez de só trocar o valor.
+
+**Consequência encontrada ao aplicar**
+
+Fechar o setter quebrou o build em dois lugares que ninguém tinha notado:
+`RepositorioIncidentesEfCore.Atualizar` e `RepositorioIncidentesEmMemoria.Atualizar`
+atribuíam `existente.BairroId = incidente.BairroId` diretamente. Os dois
+repositórios escreviam no agregado sem passar por método nenhum — exatamente
+o buraco que a decisão #7 tinha deixado aberto, e que só apareceu quando o
+compilador passou a proibir.
+
+**Evidência**
+
+Erro de compilação `CS0200: A propriedade ou o indexador "Incidente.BairroId"
+não pode ser atribuído, pois é somente leitura`, apontando as duas linhas,
+no `EVIDENCIAS.md`. Testes `MudarBairro_IncidenteAberto_AlteraOBairro` e
+`MudarBairro_IncidenteEncerrado_LancaDomainException` em `IncidenteTests.cs`.
+
+---
+
+## 25. Dívida da decisão #8 (`Bairro.Nome`) já estava paga
+
+**O que foi decidido**
+
+Nada a fazer: `Bairro.Nome` já tem `private set`, e `Bairro.Id` também. O
+construtor exige os dois, e não há setter público em nenhum dos campos.
+
+A decisão #8 registrava esse buraco como aberto por prazo na Semana 5. A
+correção aconteceu em algum momento entre a Semana 5 e a Semana 6 — muito
+provavelmente durante a integração do `Periodo` (decisão #10), que reescreveu
+partes do domínio — sem ter sido registrada como pagamento da dívida.
+
+**Alternativa considerada**
+
+Nenhuma. O item foi verificado, não decidido.
+
+**Por que isso vale registro**
+
+Dívida paga sem registro é indistinguível de dívida esquecida: a decisão #8
+continuava dizendo que o setter era público, e essa era a informação
+disponível para quem lesse o repositório. A verificação foi feita por busca
+direta no código, não por memória.
+
+**Evidência**
+
+```bash
+grep -rn "Nome" --include=*.cs backend/src/Mobilidade.Domain/
+```
+```
+backend/src/Mobilidade.Domain/Entity/Bairro.cs:6: public string Nome { get; private set; }
+backend/src/Mobilidade.Domain/Entity/Bairro.cs:11: Nome = nome;
+backend/src/Mobilidade.Domain/ValueObjects/Severidade.cs:11: public string Nome { get; }
+backend/src/Mobilidade.Domain/ValueObjects/Severidade.cs:16: Nome = nome;
+backend/src/Mobilidade.Domain/ValueObjects/Severidade.cs:33: public override string ToString() => Nome;
+```
+
+As duas ocorrências em `Bairro.cs` são a declaração com `private set` e a
+atribuição no construtor. Não há outra classe `Bairro` no domínio.
+
+## 26. Incidentes legados sem atendimento: migração com atendimento sintético
+
+**O que foi decidido**
+
+A migration `AtendimentoSinteticoParaIncidentesLegados` cria um `Atendimento`
+para cada `Incidente` que não tinha nenhum, marcado explicitamente como
+sintético:
+
+```sql
+INSERT INTO Atendimento (IncidenteId, OrgaoResponsavel, DataHora, Situacao)
+SELECT i.Id,
+       'Importacao (dado legado)',
+       i.Periodo_Inicio,
+       'Sem registro de atendimento'
+FROM Incidentes i
+WHERE NOT EXISTS (SELECT 1 FROM Atendimento a WHERE a.IncidenteId = i.Id)
+```
+
+Seis incidentes foram corrigidos. O `Down` remove apenas os registros com
+esse `OrgaoResponsavel` e essa `Situacao`, sem tocar em atendimento real.
+
+Isto paga a dívida reconhecida na sabatina da Semana 5: incidentes que
+violam a invariante 1 em repouso.
+
+**Quem eram os seis**
+
+Não são um conjunto arbitrário. O Id 2 é o registro legado que a migration
+`SeveridadeObrigatoria` converteu de `Severidade = NULL` para `NaoTriada`.
+Os Ids 13, 19, 21, 23 e 25 foram criados entre 08 e 09 de setembro, antes
+de o construtor de `Incidente` ser fechado (decisão #4) — são exatamente o
+cenário que aquela decisão passou a tornar impossível. Ou seja, os órfãos
+são o rastro de antes da invariante existir, não dado corrompido.
+
+Um sétimo incidente (Id 59) também aparecia como órfão, mas era artefato de
+teste inserido manualmente por `sqlcmd` durante a evidência da migration do
+`Periodo`. Foi deletado antes da migração, e não recebeu atendimento
+sintético — dar atendimento a um registro que nunca foi incidente de
+negócio seria acumular ficção sobre ficção.
+
+**Alternativas consideradas**
+
+1. Estado de legado na entidade: `Incidente` ganharia noção de "veio de
+   antes da invariante", e a regra de "todo incidente tem atendimento"
+   passaria a ter exceção declarada para esses casos.
+2. Documentação formal como dívida aceita: registrar os seis, não corrigir,
+   e assumir que a invariante vale só para incidentes novos.
+
+**Por que foram rejeitadas**
+
+A alternativa 1 custa caro de forma permanente: a invariante deixaria de ser
+"todo incidente tem atendimento" e passaria a ser "todo incidente tem
+atendimento, exceto quando não tem" — e todo código que consulta atendimento
+precisaria conhecer a exceção. Seis registros não justificam carregar essa
+bifurcação no domínio para sempre.
+
+A alternativa 2 é a que o prazo favorecia, e é por isso mesmo que foi
+descartada: com seis registros e um `INSERT ... SELECT` de seis linhas
+resolvendo, "dívida aceita" seria uma decisão de conveniência vestida de
+decisão técnica. A invariante 1 é a base do agregado (decisão #4); deixar
+dados que a violam em repouso significa que qualquer consulta futura que
+assuma "todo incidente tem pelo menos um atendimento" quebra sem aviso.
+
+**O que se perdeu ao escolher a migração**
+
+O atendimento sintético não representa atendimento que aconteceu. Ele diz
+"não há registro", o que é verdade, mas ocupa a mesma tabela dos
+atendimentos reais. Qualquer relatório que conte atendimentos vai contar
+esses seis. O `OrgaoResponsavel` explícito permite filtrá-los, mas isso
+exige que quem escreve o relatório saiba que eles existem.
+
+**Sobre a data escolhida**
+
+`Periodo_Inicio` — o momento de abertura do próprio incidente. A migration
+do `Periodo` (decisão #10) enfrentou escolha parecida e usou `GETUTCDATE()`,
+porque lá não havia data honesta disponível. Aqui há: o atendimento
+sintético não aconteceu em instante nenhum, então usá-lo com a data da
+abertura evita inventar um momento que não existiu.
+
+**O que mudaria de ideia**
+
+Se a tabela `Atendimento` passasse a ter uma coluna que distinga origem
+(real, sintético, importado), o filtro por `OrgaoResponsavel` viraria
+gambiarra e a marcação correta seria essa coluna.
+
+**Evidência**
+
+`EVIDENCIAS.md`, seção "Semana 6: Incidentes legados sem atendimento", com
+o `SELECT` dos seis órfãos antes, o SQL executado pela migration, e a
+contagem zerada depois.

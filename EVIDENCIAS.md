@@ -558,7 +558,7 @@ dentro de `Abrir()`), o mesmo teste passa — prova que a integração real
 
 Comando:
 ```bash
-docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Mobilidade#2026 -d MobilidadeDb -C -Q "SELECT Id, DataHora, Encerrado FROM Incidentes"
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P SuaSenhaAqui -d MobilidadeDb -C -Q "SELECT Id, DataHora, Encerrado FROM Incidentes"
 ```
 
 Saída:
@@ -624,7 +624,7 @@ sido testada contra um caso real. Inserido manualmente um incidente com
 
 Comando:
 ```bash
-docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Mobilidade#2026 -d MobilidadeDb -C -Q "INSERT INTO Incidentes (DataHora, Tipo, Severidade, BairroId, Encerrado) VALUES ('2026-09-01T10:00:00', 0, 2, 1, 1)"
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P SuaSenhaAqui -d MobilidadeDb -C -Q "INSERT INTO Incidentes (DataHora, Tipo, Severidade, BairroId, Encerrado) VALUES ('2026-09-01T10:00:00', 0, 2, 1, 1)"
 ```
 
 Saída:
@@ -634,7 +634,7 @@ Saída:
 
 Confirmação do dado inserido:
 ```bash
-docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Mobilidade#2026 -d MobilidadeDb -C -Q "SELECT Id, DataHora, Encerrado FROM Incidentes WHERE Encerrado = 1"
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P SuaSenhaAqui -d MobilidadeDb -C -Q "SELECT Id, DataHora, Encerrado FROM Incidentes WHERE Encerrado = 1"
 ```
 
 ```
@@ -666,7 +666,7 @@ Done.
 
 Comando:
 ```bash
-docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Mobilidade#2026 -d MobilidadeDb -C -Q "SELECT Id, Periodo_Inicio, Periodo_Fim FROM Incidentes"
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P SuaSenhaAqui -d MobilidadeDb -C -Q "SELECT Id, Periodo_Inicio, Periodo_Fim FROM Incidentes"
 ```
 
 Saída (trecho relevante):
@@ -895,7 +895,7 @@ despachador → handler → repositório de auditoria.
   o banco gera o `Id` (IDENTITY). Os demais dados do evento (severidade,
   data) já existem desde `Abrir()`. O custo dessa escolha é que um caso de
   uso novo precisa lembrar de chamar o método — aceito por ora, registrado
-  na decisão #15.
+  na decisão #14.
 - **`LimparEventos()` depois do despacho:** sem isso, um segundo `Salvar()`
   na mesma instância redespacharia os mesmos eventos. A lista é um buffer
   de uma transação, não um histórico.
@@ -1069,3 +1069,129 @@ Resumo do teste: total: 9; falhou: 0; bem-sucedido: 9; ignorado: 0; duração: 3
   as anotações estão declaradas, não que o pipeline as executa. Fechar essa
   lacuna exige `WebApplicationFactory`, registrado como pendência na
   decisão #23.
+
+  ## Semana 6: Incidentes legados sem atendimento
+
+### O que se quer provar
+
+A invariante 1 (todo incidente nasce com pelo menos um atendimento) é
+garantida estruturalmente para incidentes novos desde a decisão #4, mas o
+banco tinha registros anteriores a essa garantia — incidentes sem nenhum
+atendimento, violando a invariante em repouso. Dívida reconhecida na
+sabatina da Semana 5, paga aqui.
+
+### Estado ANTES — sete órfãos
+
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SuaSenhaAqui" -d MobilidadeDb -C -Q "SELECT i.Id, i.Periodo_Inicio, i.Severidade, i.BairroId FROM Incidentes i WHERE NOT EXISTS (SELECT 1 FROM Atendimento a WHERE a.IncidenteId = i.Id)"
+```
+
+**Saída:**
+```
+Id Periodo_Inicio Severidade BairroId
+
+      2            2026-09-03 00:00:00.0000000           3           1
+     13            2026-09-08 21:51:04.5823336           2           1
+     19            2026-09-09 13:49:35.0304101           2           1
+     21            2026-09-09 13:59:25.5020524           2           1
+     23            2026-09-09 14:12:58.3579565           2           1
+     25            2026-09-09 14:18:56.6264448           2           1
+     59            2026-09-01 10:00:00.0000000           2           1
+
+(7 rows affected)
+```
+
+O Id 2 é o registro que a migration `SeveridadeObrigatoria` converteu de
+`NULL` para `NaoTriada` (severidade 3). Os Ids 13 a 25 são de 08 e 09 de
+setembro, antes de o construtor de `Incidente` ser fechado.
+
+### Remoção do artefato de teste (Id 59)
+
+O Id 59 não é dado legado: foi inserido manualmente por `sqlcmd` durante a
+evidência da migration do `Periodo`, para testar o `UPDATE ... WHERE
+Encerrado = 1` contra um caso real. Removido antes da migração.
+
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SuaSenhaAqui" -d MobilidadeDb -C -Q "DELETE FROM Incidentes WHERE Id = 59"
+```
+**Saída:**
+
+```
+(1 rows affected)
+```
+
+Restaram seis órfãos, todos dado de negócio anterior à invariante.
+
+### Migration criada e aplicada
+
+```bash
+dotnet ef migrations add AtendimentoSinteticoParaIncidentesLegados --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api
+dotnet ef database update --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api
+```
+
+SQL executado:
+```
+Applying migration '20260918170657_AtendimentoSinteticoParaIncidentesLegados'.
+
+INSERT INTO Atendimento (IncidenteId, OrgaoResponsavel, DataHora, Situacao)
+SELECT i.Id,
+'Importacao (dado legado)',
+i.Periodo_Inicio,
+'Sem registro de atendimento'
+FROM Incidentes i
+WHERE NOT EXISTS (SELECT 1 FROM Atendimento a WHERE a.IncidenteId = i.Id)
+
+Done.
+```
+
+
+### Estado DEPOIS — zero órfãos
+
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SuaSenhaAqui" -d MobilidadeDb -C -Q "SELECT COUNT(*) AS Orfaos FROM Incidentes i WHERE NOT EXISTS (SELECT 1 FROM Atendimento a WHERE a.IncidenteId = i.Id)"
+```
+**Saída:**
+```
+Orfaos
+      0
+
+(1 rows affected)
+```
+
+### Os seis atendimentos sintéticos criados
+
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SuaSenhaAqui" -d MobilidadeDb -C -Q "SELECT Id, IncidenteId, OrgaoResponsavel, DataHora, Situacao FROM Atendimento WHERE OrgaoResponsavel = 'Importacao (dado legado)'"
+```
+**Saída:**
+```
+Id IncidenteId OrgaoResponsavel DataHora Situacao
+
+45 2 Importacao (dado legado) 2026-09-03 00:00:00.0000000 Sem registro de atendimento
+46 13 Importacao (dado legado) 2026-09-08 21:51:04.5823336 Sem registro de atendimento
+47 19 Importacao (dado legado) 2026-09-09 13:49:35.0304101 Sem registro de atendimento
+48 21 Importacao (dado legado) 2026-09-09 13:59:25.5020524 Sem registro de atendimento
+49 23 Importacao (dado legado) 2026-09-09 14:12:58.3579565 Sem registro de atendimento
+50 25 Importacao (dado legado) 2026-09-09 14:18:56.6264448 Sem registro de atendimento
+
+(6 rows affected)
+```
+Cada `DataHora` é o `Periodo_Inicio` do incidente correspondente — nenhum
+instante foi inventado.
+
+### Por quê
+
+- **Migração em vez de dívida documentada:** com seis registros e um
+  `INSERT ... SELECT` resolvendo, aceitar a dívida seria conveniência
+  vestida de decisão técnica. A invariante 1 é a base do agregado; dado que
+  a viola em repouso quebra qualquer consulta futura que a assuma
+  (decisão #26).
+- **`Periodo_Inicio` como data:** o atendimento sintético não aconteceu em
+  instante nenhum. Usar a data de abertura do incidente evita inventar um
+  momento — diferente da migration do `Periodo`, onde não havia data honesta
+  disponível e `GETUTCDATE()` foi a escolha.
+- **`OrgaoResponsavel` explícito:** deixa o registro identificável como
+  sintético e permite que o `Down` reverta exatamente esses seis, sem tocar
+  em atendimento real.
+- **Custo assumido:** esses seis ocupam a mesma tabela dos atendimentos
+  reais e entram em qualquer contagem que não os filtre.
