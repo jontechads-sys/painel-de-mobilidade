@@ -73,7 +73,7 @@ public class IncidenteTests
         // Assert 
         // TODO: verifica que a lista de eventos continua com só 1 item
         //       (não 2 — a segunda tentativa não deve ter adicionado nada)
-        Assert.Equal(1, incidente.Eventos.Count);
+        Assert.Single(incidente.Eventos);
     }
 
     [Fact]
@@ -90,18 +90,16 @@ public class IncidenteTests
         Assert.IsType<IncidenteEncerrado>(incidente.Eventos.First());
     }
     [Fact]
-    public void Executar_IncidenteValido_RegistraIncidenteAbertoComIdReal()
+    public void Executar_IncidenteValido_DespachaIncidenteAbertoComIdReal()
     {
         var repositorio = new RepositorioIncidentesEmMemoria();
-        var abrirIncidente = new AbrirIncidente(repositorio);
+        var despachador = new DespachadorEmMemoria();
+        var abrirIncidente = new AbrirIncidente(repositorio, despachador);
 
-        var incidenteCriado = abrirIncidente.Executar(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Serviço Militar", "Em analise");
+        var id = abrirIncidente.Executar(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Serviço Militar", "Em analise");
 
-        var incidenteBuscado = repositorio.BuscarPorId(incidenteCriado);
-        Assert.NotNull(incidenteBuscado);
-        Assert.IsType<IncidenteAberto>(incidenteBuscado.Eventos.First());
-
-        var evento = (IncidenteAberto)incidenteBuscado.Eventos.First();
-        Assert.Equal(evento.IncidenteId, incidenteBuscado.Id);
+        var evento = Assert.IsType<IncidenteAberto>(Assert.Single(despachador.Publicados));
+        Assert.Equal(id, evento.IncidenteId);
     }
+
 }
