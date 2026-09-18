@@ -909,3 +909,163 @@ despachador → handler → repositório de auditoria.
   Deliberado — a importação é carga de dados histórica, não abertura de
   incidente pelo domínio.
 
+  ## Semana 6: Validação em duas camadas
+
+### O que se quer provar
+
+Erro de formato (campo ausente, fora de range) é resolvido na borda da API,
+que responde 400 sem que o domínio tome conhecimento da requisição. Erro de
+regra de negócio (severidade `NaoTriada` na criação, incidente já encerrado,
+data futura) só o domínio sabe julgar: o agregado lança `DomainException`
+com mensagem na linguagem do negócio, e o `DomainExceptionFilter` traduz
+para 422.
+
+As três requisições abaixo foram feitas contra a API rodando em
+`http://localhost:5041`, com o banco real.
+
+### 1. Falha na borda — 400, o domínio nunca é chamado
+
+Requisição, sem `bairroId` e sem `situacao`:
+
+```bash
+curl -i -X POST http://localhost:5041/api/Incidentes -H "Content-Type: application/json" -d "{\"dataHora\":\"2026-09-18T10:00:00\",\"tipo\":0,\"severidade\":2,\"descricao\":\"teste borda\",\"orgaoResponsavel\":\"Defesa Civil\"}"
+```
+
+Resposta:
+```
+HTTP/1.1 400 Bad Request
+Content-Type: application/problem+json; charset=utf-8
+
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"One or more validation errors occurred.","status":400,"errors":{"BairroId":["BairroId é obrigatório."],"Situacao":["Situacao é obrigatória."]},"traceId":"00-de280ecd0df1928cc5cb5a91208df886-a1426556fa799967-00"}
+```
+
+
+O `[ApiController]` valida o DTO antes de entrar no método do controller —
+`IncidentesController.Criar` nunca executa, `Incidente.Abrir` nunca é
+chamado. Os dois campos ausentes aparecem nomeados, com as mensagens
+declaradas nas anotações.
+
+### 2. Passa a borda, falha no domínio — 422
+
+Requisição com `severidade: 3` (`NaoTriada`), que o `[Range(0, 3)]` aceita
+de propósito (decisão #21):
+
+```bash
+curl -i -X POST http://localhost:5041/api/Incidentes -H "Content-Type: application/json" -d "{\"dataHora\":\"2026-09-18T10:00:00\",\"tipo\":0,\"severidade\":3,\"bairroId\":1,\"descricao\":\"teste dominio\",\"orgaoResponsavel\":\"Defesa Civil\",\"situacao\":\"Em analise\"}"
+```
+
+Resposta:
+```
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/problem+json; charset=utf-8
+
+{"title":"Regra de negócio violada","status":422,"detail":"Incidente não pode ser aberto sem severidade definida"}
+```
+
+
+Todos os campos estão presentes e dentro dos ranges, então a borda deixa
+passar. O construtor privado de `Incidente` rejeita `NaoTriada` (decisão #1)
+e lança `DomainException`; o filtro traduz para 422 com a mensagem do
+domínio intacta.
+
+### 3. Passa as duas camadas — 201
+
+```bash
+curl -i -X POST http://localhost:5041/api/Incidentes -H "Content-Type: application/json" -d "{\"dataHora\":\"2026-09-18T10:00:00\",\"tipo\":0,\"severidade\":2,\"bairroId\":1,\"descricao\":\"teste ok\",\"orgaoResponsavel\":\"Defesa Civil\",\"situacao\":\"Em analise\"}"
+```
+
+Resposta:
+```
+HTTP/1.1 201 Created
+Content-Type: application/json; charset=utf-8
+Location: http://localhost:5041/api/Incidentes/64
+
+{"eventos":[],"periodo":{"inicio":"2026-09-18T10:00:00","fim":null,"estaEmAberto":true,"duracao":null},"id":64,"tipo":0,"severidade":{"valor":2,"nome":"Alta"},"bairroId":1,"descricao":"teste ok","bairro":null,"atendimentos":[{"id":44,"incidenteId":64,"orgaoResponsavel":"Defesa Civil","dataHora":"2026-09-18T10:00:00","situacao":"Em analise","incidente":null}]}
+```
+
+
+### Tentativa rejeitada: anotações com `[property:]`
+
+**O que se quer provar:** que a escolha da decisão #22 não é preferência,
+e sim a única forma que o ASP.NET Core aceita.
+
+Primeiro esboço do teste de borda usava `Validator.TryValidateObject`, que
+devolvia coleção vazia de erros — `Validator` só enxerga atributos em
+propriedades, e num record posicional as anotações ficam nos parâmetros do
+construtor:
+```
+Mobilidade.Tests.ValidacaoBordaTests.CriarIncidenteRequest_SemCamposObrigatorios_FalhaNaValidacao [FAIL]
+Assert.Contains() Failure: Filter not matched in collection
+Collection: []
+```
+
+
+Anotações trocadas para `[property: Required(...)]`. O teste passou, mas a
+API quebrou — toda requisição ao endpoint passou a devolver 500:
+```
+HTTP/1.1 500 Internal Server Error
+
+{"title":"System.InvalidOperationException","status":500,"detail":"Record type 'Mobilidade.Api.Dtos.CriarIncidenteRequest' has validation metadata defined on property 'Situacao' that will be ignored. 'Situacao' is a parameter in the record primary constructor and validation metadata must be associated with the constructor parameter."}
+```
+
+Lançado por `ModelMetadata.ThrowIfRecordTypeHasValidationOnProperties()`
+durante o model binding, antes mesmo de qualquer validação rodar.
+
+As duas exigências são incompatíveis. As anotações voltaram para o
+parâmetro (comportamento HTTP correto, confirmado pelo 400 da seção 1) e o
+teste passou a ler os atributos por reflection sobre os parâmetros do
+construtor.
+
+### Testes
+
+```bash
+dotnet test --filter ValidacaoBordaTests
+```
+
+**Saída:**
+
+```Resumo do teste: total: 7; falhou: 0; bem-sucedido: 7; ignorado: 0; duração: 2,3s```
+
+```bash
+dotnet test --filter DomainExceptionFilterTests
+```
+
+**Saída:**
+```
+Resumo do teste: total: 3; falhou: 0; bem-sucedido: 3; ignorado: 0; duração: 1,5s
+Construir êxito(s) com 4 aviso(s) em 5,6s
+```
+
+
+```bash
+dotnet test --filter IncidenteTests
+```
+**Saída:**
+```
+Resumo do teste: total: 9; falhou: 0; bem-sucedido: 9; ignorado: 0; duração: 3,9s
+```
+
+### Por quê
+
+- **`DomainException` em vez de `InvalidOperationException`:** um filtro que
+  traduzisse `InvalidOperationException` para 422 transformaria qualquer bug
+  de programação (um `First()` em coleção vazia, por exemplo) em "regra de
+  negócio violada". Com tipo próprio, só o que o domínio declarou como regra
+  vira 422; o resto continua 500, que é o que de fato é (decisão #19).
+- **Filtro global em vez de `try/catch` por método:** os `catch
+  (InvalidOperationException)` que existiam no controller viraram código
+  morto no instante em que o domínio passou a lançar `DomainException` — e
+  o resultado era 500 silencioso. O filtro cobre qualquer endpoint sem
+  depender de alguém lembrar (decisão #20).
+- **Mudança de contrato:** encerrar incidente já encerrado respondia 409 e
+  agora responde 422. 409 tratava a violação como conflito de concorrência,
+  o que não descreve o caso — o incidente não está sendo disputado, ele está
+  num estado que não permite a operação.
+- **A borda aceita `severidade: 3`:** é o que torna as duas camadas
+  visivelmente distintas na seção 2. Barrar na borda duplicaria em dois
+  lugares uma regra que pertence ao domínio (decisão #21).
+- **Limitação conhecida:** o 400 não tem teste automatizado que o produza —
+  é provado apenas pela requisição HTTP da seção 1. Os testes verificam que
+  as anotações estão declaradas, não que o pipeline as executa. Fechar essa
+  lacuna exige `WebApplicationFactory`, registrado como pendência na
+  decisão #23.

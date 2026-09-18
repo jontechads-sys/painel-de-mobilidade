@@ -852,3 +852,227 @@ recebendo `string` no DTO, sem expor o VO.
 `EVIDENCIAS.md`, seção "Semana 6: Handler de evento" → "Bug encontrado no
 caminho", com a `NotSupportedException` completa do
 `System.Text.Json` e o antes/depois do DTO e do controller.
+
+## 19. Exceção de domínio própria (`DomainException`), não exceções do .NET
+
+**O que foi decidido**
+
+As quatro invariantes do `Incidente` passam a lançar `DomainException`
+(em `Mobilidade.Domain/Excecoes/`) em vez de `ArgumentException` e
+`InvalidOperationException`. As mensagens foram reescritas na linguagem
+do negócio — "Severidade Ausente" virou "Incidente não pode ser aberto
+sem severidade definida", porque essa mensagem chega ao cliente da API
+como o `detail` de um 422.
+
+**Alternativa considerada**
+
+Manter `ArgumentException` e `InvalidOperationException` e fazer o filtro
+da API traduzir esses dois tipos para 422.
+
+**Por que foi rejeitada**
+
+`InvalidOperationException` é lançada por dezenas de pontos da BCL —
+`First()` numa coleção vazia, LINQ sobre sequência inválida, `DbContext`
+em estado inconsistente. Um filtro que traduzisse esse tipo para 422
+transformaria qualquer bug de programação em "regra de negócio violada",
+escondendo erro real atrás de uma resposta que diz ao cliente que ele
+errou. Um tipo próprio significa que só o que o domínio declarou como
+regra chega como 422; qualquer outra coisa continua sendo 500, que é o
+que de fato é.
+
+**O que mudaria de ideia**
+
+Se o domínio precisasse distinguir categorias de violação (conflito de
+estado versus dado inválido, por exemplo) com status HTTP diferentes,
+uma única `DomainException` não bastaria — seria uma hierarquia, com o
+filtro mapeando cada subtipo.
+
+**Evidência**
+
+`Incidente.cs` (quatro `throw new DomainException`). Testes
+`Criar_ComDataHoraFutura_LancaDomainException`,
+`Criar_ComSeveridadeNaoTriada_LancaDomainException`,
+`Encerrar_QuandoIncidenteJaEstiverEncerrado_LancaDomainException`,
+`RegistrarAtendimento_QuandoIncidenteEstaEncerrado_LancaDomainException`
+em `IncidenteTests.cs`. `EVIDENCIAS.md`, seção "Semana 6: Validação em
+duas camadas".
+
+---
+
+## 20. Tradução de exceção em filtro, não em `try/catch` no controller
+
+**O que foi decidido**
+
+Um `DomainExceptionFilter` (`IExceptionFilter`, registrado globalmente em
+`AddControllers`) traduz `DomainException` para 422 e
+`KeyNotFoundException` para 404, ambos como `ProblemDetails`. Os
+`try/catch` que existiam em `Encerrar` e `RegistrarAtendimento` no
+controller foram removidos.
+
+**Consequência: mudança de contrato.** Encerrar um incidente já encerrado
+respondia **409 Conflict** e agora responde **422**. É breaking change
+para qualquer cliente existente. A missão pede 422 para regra de negócio
+violada, e o 409 anterior tratava a violação como conflito de
+concorrência, que não é o caso — o incidente não está sendo disputado por
+duas requisições, ele está num estado que não permite a operação.
+
+**Alternativa considerada**
+
+Manter o `try/catch` em cada método do controller, trocando apenas o tipo
+capturado e o status devolvido.
+
+**Por que foi rejeitada**
+
+O `try/catch` por método é uma regra que depende de disciplina: todo
+endpoint novo precisa lembrar de capturar. Isso já tinha falhado —
+depois da decisão #19, os `catch (InvalidOperationException)` viraram
+código morto silenciosamente, porque o domínio passou a lançar outro
+tipo, e o resultado era 500 em vez de 409. O filtro global não tem esse
+modo de falha: qualquer endpoint, existente ou futuro, é coberto sem
+precisar lembrar de nada.
+
+**O que mudaria de ideia**
+
+Se um endpoint específico precisasse responder algo diferente para a
+mesma exceção, o filtro global deixaria de bastar — mas o caso certo aí
+seria um filtro por ação, não voltar ao `try/catch`.
+
+**Evidência**
+
+`DomainExceptionFilter.cs`. Registro em `Program.cs`
+(`options.Filters.Add<DomainExceptionFilter>()`). Testes
+`OnException_ComDomainException_Retorna422ComMensagemDoDominio`,
+`OnException_ComKeyNotFound_Retorna404` e
+`OnException_ComExcecaoDesconhecida_NaoTrata` em
+`DomainExceptionFilterTests.cs`. Requisição 422 real no `EVIDENCIAS.md`.
+
+---
+
+## 21. `[Range(0, 3)]` na severidade aceita `NaoTriada` de propósito
+
+**O que foi decidido**
+
+A borda aceita severidade de 0 a 3, incluindo `NaoTriada` (valor 3), e
+deixa o domínio rejeitá-la com 422.
+
+**Alternativa considerada**
+
+`[Range(0, 2)]`, barrando `NaoTriada` já na borda com 400.
+
+**Por que foi rejeitada**
+
+A pergunta que separa as camadas é quem é dono da regra. A borda sabe que
+`3` é um valor válido de `Severidade` — `Severidade.DeInt(3)` devolve
+`NaoTriada` sem erro, e o banco tem registros legados com esse valor. O
+que a borda não sabe é que um incidente **novo** não pode nascer sem
+triagem; isso é a decisão #1, e vive no domínio. Barrar na borda
+duplicaria a regra em dois lugares: se amanhã a triagem virar etapa do
+fluxo e `NaoTriada` passar a ser aceita na criação, seria preciso mudar o
+`Incidente` e lembrar de mudar o DTO junto.
+
+**O que mudaria de ideia**
+
+Se `NaoTriada` deixasse de existir como valor de `Severidade` — sendo
+substituída por ausência real (`null`) — o range da borda passaria a ser
+0 a 2 por definição do tipo, não por escolha.
+
+**Evidência**
+
+Teste `CriarIncidenteRequest_Severidade_AceitaNaoTriadaParaQueODominioDecida`
+em `ValidacaoDeBordaTests.cs`. Requisição com `"severidade": 3` no
+`EVIDENCIAS.md`, que passa a borda e recebe 422 do domínio.
+
+---
+
+## 22. Anotações de validação no parâmetro do record, não na propriedade
+
+**O que foi decidido**
+
+As anotações de `CriarIncidenteRequest` ficam nos parâmetros do construtor
+primário (`[Required] DateTime? DataHora`), sem o prefixo `property:`.
+
+**Alternativa considerada**
+
+Usar `[property: Required]`, que direciona o atributo para a propriedade
+gerada pelo compilador em vez do parâmetro.
+
+**Por que foi rejeitada**
+
+Não é preferência: o ASP.NET Core recusa. Com `[property:]`, toda
+requisição ao endpoint devolve 500 com
+`InvalidOperationException: Record type '...' has validation metadata
+defined on property 'Situacao' that will be ignored. 'Situacao' is a
+parameter in the record primary constructor and validation metadata must
+be associated with the constructor parameter.`
+
+A alternativa foi tentada porque `Validator.TryValidateObject` — usado
+num primeiro esboço do teste de borda — só enxerga atributos em
+propriedades, e devolvia coleção vazia de erros com as anotações no
+parâmetro. As duas exigências são incompatíveis, e o comportamento HTTP
+real tem precedência sobre a conveniência do teste.
+
+**Consequência para o teste**
+
+O teste de borda passou a ler os atributos por reflection sobre os
+parâmetros do construtor, verificando que as anotações estão declaradas e
+que os ranges aceitam ou rejeitam os valores certos. Isso verifica a
+configuração da validação, não a validação executando — a prova de que o
+400 acontece de fato são as requisições HTTP no `EVIDENCIAS.md`.
+
+**O que mudaria de ideia**
+
+Se o DTO deixasse de ser record posicional e virasse classe com
+propriedades, as anotações iriam naturalmente para as propriedades, o
+`Validator` funcionaria e o teste poderia exercitar a validação de
+verdade.
+
+**Evidência**
+
+Saída completa do 500 com `[property:]` e do 400 correto sem ele, lado a
+lado, no `EVIDENCIAS.md`, seção "Semana 6: Validação em duas camadas" →
+"Tentativa rejeitada".
+
+---
+
+## 23. Testes de validação sobre as peças, não sobre a API em execução
+
+**O que foi decidido**
+
+A validação em duas camadas é testada por unidade: o `DomainExceptionFilter`
+recebe um `ExceptionContext` montado à mão e devolve o status esperado; o
+DTO tem suas anotações verificadas por reflection. O comportamento ponta a
+ponta (400, 422, 201) é provado pelas três requisições HTTP reais coladas
+no `EVIDENCIAS.md`.
+
+**Alternativa considerada**
+
+`WebApplicationFactory<Program>` (pacote `Microsoft.AspNetCore.Mvc.Testing`),
+subindo a aplicação inteira em memória e fazendo as três requisições dentro
+do teste.
+
+**Por que foi rejeitada**
+
+Essa é uma decisão de escopo e tempo, e é escrita como tal — não há
+argumento técnico que torne a alternativa pior. `WebApplicationFactory`
+provaria mais: o pipeline inteiro, incluindo o `[ApiController]` gerando
+o 400, que os testes atuais não exercitam. O custo era montar a
+infraestrutura de teste de integração no mesmo dia da entrega, com o
+agravante conhecido de que esses testes escrevem no banco real sem
+cleanup — limitação já registrada na Semana 4 e ainda não resolvida.
+
+**O que fica em aberto**
+
+O 400 não tem teste que o produza; ele é provado apenas pela requisição
+HTTP no `EVIDENCIAS.md`. Essa é a lacuna real desta decisão, e some
+quando a infraestrutura de teste de integração existir.
+
+**O que mudaria de ideia**
+
+Assim que houver base de teste de integração com banco isolado e cleanup
+automático, os três cenários devem migrar para lá — é onde a prova fica
+completa.
+
+**Evidência**
+
+`ValidacaoDeBordaTests.cs` (7 casos), `DomainExceptionFilterTests.cs`
+(3 casos). `EVIDENCIAS.md` com as três requisições e respostas completas.
