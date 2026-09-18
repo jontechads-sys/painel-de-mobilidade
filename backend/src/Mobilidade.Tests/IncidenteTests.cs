@@ -86,7 +86,8 @@ public class IncidenteTests
         var despachador = new DespachadorEmMemoria();
         var abrirIncidente = new AbrirIncidente(repositorio, despachador);
 
-        var id = abrirIncidente.Executar(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Serviço Militar", "Em analise");
+        var id = abrirIncidente.Executar(new AbrirIncidenteCommand(
+          DateTime.UtcNow, Severidade.Alta, 1, "teste", "Serviço Militar", "Em analise"));
 
         var evento = Assert.IsType<IncidenteAberto>(Assert.Single(despachador.Publicados));
         Assert.Equal(id, evento.IncidenteId);

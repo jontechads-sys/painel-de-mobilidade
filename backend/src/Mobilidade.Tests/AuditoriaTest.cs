@@ -23,7 +23,8 @@ public class AuditoriaTests
     {
         var (casoDeUso, auditoria) = Montar();
 
-        casoDeUso.Executar(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise");
+        casoDeUso.Executar(new AbrirIncidenteCommand(
+             DateTime.UtcNow, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise")); ;
 
         Assert.Single(auditoria.Registros);
     }
@@ -33,7 +34,8 @@ public class AuditoriaTests
     {
         var (casoDeUso, auditoria) = Montar();
 
-        casoDeUso.Executar(DateTime.UtcNow, Severidade.Baixa, 1, "teste", "Defesa Civil", "Em analise");
+        casoDeUso.Executar(new AbrirIncidenteCommand(
+            DateTime.UtcNow, Severidade.Baixa, 1, "teste", "Defesa Civil", "Em analise"));
 
         Assert.Empty(auditoria.Registros);
     }

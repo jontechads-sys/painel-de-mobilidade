@@ -5,6 +5,14 @@ using Mobilidade.Domain.ValueObjects;
 
 namespace Mobilidade.Application.CasosDeUso;
 
+public sealed record AbrirIncidenteCommand(
+    DateTime DataHora,
+    Severidade Severidade,
+    int BairroId,
+    string? Descricao,
+    string OrgaoResponsavel,
+    string Situacao);
+
 public class AbrirIncidente
 {
     private readonly IIncidenteRepository _repositorio;
@@ -18,15 +26,15 @@ public class AbrirIncidente
         _despachador = despachador;
     }
 
-    public int Executar(
-        DateTime dataHora,
-        Severidade severidade,
-        int bairroId,
-        string? descricao,
-        string orgaoResponsavel,
-        string situacao)
+    public int Executar(AbrirIncidenteCommand comando)
     {
-        var incidente = Incidente.Abrir(dataHora, severidade, bairroId, descricao, orgaoResponsavel, situacao);
+        var incidente = Incidente.Abrir(
+            comando.DataHora,
+            comando.Severidade,
+            comando.BairroId,
+            comando.Descricao,
+            comando.OrgaoResponsavel,
+            comando.Situacao);
 
         var incidenteNovo = _repositorio.Criar(incidente);
         incidenteNovo.RegistrarIncidenteAberto();

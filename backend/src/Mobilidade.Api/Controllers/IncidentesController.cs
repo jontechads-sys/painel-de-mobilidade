@@ -43,13 +43,13 @@ public class IncidentesController : ControllerBase
     {
         var severidade = Severidade.DeInt(request.Severidade!.Value);
 
-        var incidenteCriado = _abrirIncidente.Executar(
-            request.DataHora!.Value,
-            severidade,
-            request.BairroId!.Value,
-            request.Descricao,
-            request.OrgaoResponsavel!,
-            request.Situacao!);
+        var incidenteCriado = _abrirIncidente.Executar(new AbrirIncidenteCommand(
+         request.DataHora!.Value,
+         severidade,
+         request.BairroId!.Value,
+         request.Descricao,
+         request.OrgaoResponsavel!,
+                    request.Situacao!));
 
         var incidente = _buscarIncidentePorId.Handle(new BuscarIncidentePorIdQuery(incidenteCriado));
         return CreatedAtAction(nameof(BuscarPorId), new { id = incidenteCriado }, incidente);
@@ -112,7 +112,7 @@ public class IncidentesController : ControllerBase
     [HttpPost("{id}/encerrar")]
     public IActionResult Encerrar(int id)
     {
-        int incidenteId = _encerrarIncidente.Executar(id);
+        int incidenteId = _encerrarIncidente.Executar(new EncerrarIncidenteCommand(id));
         var incidente = _buscarIncidentePorId.Handle(new BuscarIncidentePorIdQuery(incidenteId));
         return Ok(incidente);
     }
@@ -120,10 +120,11 @@ public class IncidentesController : ControllerBase
     [HttpPost("{id}/atendimentos")]
     public IActionResult RegistrarAtendimento(int id, RegistrarAtendimentoRequest request)
     {
-        int incidenteId = _registrarAtendimento.Executar(
-            id, request.DataHora, request.OrgaoResponsavel, request.Situacao);
+        int incidenteId = _registrarAtendimento.Executar(new RegistrarAtendimentoCommand(
+           id, request.DataHora, request.OrgaoResponsavel, request.Situacao));
 
         var incidente = _buscarIncidentePorId.Handle(new BuscarIncidentePorIdQuery(incidenteId));
         return Ok(incidente);
     }
+
 }

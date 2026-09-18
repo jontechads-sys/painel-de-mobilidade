@@ -5,6 +5,8 @@ using Mobilidade.Domain.ValueObjects;
 
 namespace Mobilidade.Application.CasosDeUso;
 
+public sealed record EncerrarIncidenteCommand(int IncidenteId);
+
 public class EncerrarIncidente
 {
     private readonly IIncidenteRepository _repositorio;
@@ -18,9 +20,9 @@ public class EncerrarIncidente
         _despachador = despachador;
     }
 
-    public int Executar(int id)
+    public int Executar(EncerrarIncidenteCommand comando)
     {
-        var incidente = _repositorio.BuscarPorId(id);
+        var incidente = _repositorio.BuscarPorId(comando.IncidenteId);
         if (incidente == null)
         {
             throw new KeyNotFoundException("Id inexistente no banco");

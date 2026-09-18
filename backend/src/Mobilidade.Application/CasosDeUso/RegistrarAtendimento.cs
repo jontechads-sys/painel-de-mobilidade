@@ -5,6 +5,12 @@ using Mobilidade.Domain.ValueObjects;
 
 namespace Mobilidade.Application.CasosDeUso;
 
+public sealed record RegistrarAtendimentoCommand(
+    int IncidenteId,
+    DateTime DataHora,
+    string OrgaoResponsavel,
+    string Situacao);
+
 public class RegistrarAtendimento
 {
     private readonly IIncidenteRepository _repositorio;
@@ -18,19 +24,15 @@ public class RegistrarAtendimento
         _despachador = despachador;
     }
 
-    public int Executar(
-        int id,
-        DateTime dataHora,
-        string orgaoReponsavel,
-        string situacao)
+    public int Executar(RegistrarAtendimentoCommand comando)
     {
-        var incidente = _repositorio.BuscarPorId(id);
+        var incidente = _repositorio.BuscarPorId(comando.IncidenteId);
         if (incidente == null)
         {
             throw new KeyNotFoundException("Id inexistente no banco");
         }
 
-        incidente.RegistrarAtendimento(dataHora, orgaoReponsavel, situacao);
+        incidente.RegistrarAtendimento(comando.DataHora, comando.OrgaoResponsavel, comando.Situacao);
         _repositorio.Salvar(incidente);
 
         foreach (var evento in incidente.Eventos)
