@@ -10,6 +10,7 @@ using Mobilidade.Application.Eventos;
 using Mobilidade.Application.Eventos.Manipuladores;
 using Mobilidade.Domain.Eventos;
 using Mobilidade.Api.Filtros;
+using Mobilidade.Infrastructure.Consultas;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +21,10 @@ builder.Services.AddControllers(options =>
 .AddJsonOptions(options => options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles);
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
+
+builder.Services.AddScoped<ListarIncidentesHandler>();
+builder.Services.AddScoped<BuscarIncidentePorIdHandler>();
+builder.Services.AddScoped<IncidentesPorBairroHandler>();
 
 builder.Services.AddScoped<IIncidenteRepository, RepositorioIncidentesEfCore>();
 builder.Services.AddScoped<IAuditoriaRepository, RepositorioAuditoriaEfCore>();
@@ -74,6 +79,27 @@ app.MapPost("/api/incidentes/importar", async (
 
     return Results.Ok(new { importados = resultado.Incidentes.Count, avisos = resultado.Avisos });
 })
-.WithName("ImportarIncidentesCsv");
 
+.WithName("ImportarIncidentesCsv");
+app.MapGet("/api/debug/sql", (IncidentesDbContext ctx) =>
+{
+    var sqlProjecao = ctx.Incidentes
+        .AsNoTracking()
+        .Select(i => new
+        {
+            i.Id,
+            i.Periodo.Inicio,
+            Severidade = i.Severidade.Nome,
+            Bairro = i.Bairro!.Nome,
+            EstaEmAberto = i.Periodo.Fim == null
+        })
+        .ToQueryString();
+
+    var sqlAgregado = ctx.Incidentes
+        .Include(i => i.Bairro)
+        .Include(i => i.Atendimentos)
+        .ToQueryString();
+
+    return Results.Text($"=== COM PROJECAO ===\n\n{sqlProjecao}\n\n=== AGREGADO INTEIRO ===\n\n{sqlAgregado}");
+});
 app.Run();
