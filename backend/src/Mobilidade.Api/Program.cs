@@ -6,6 +6,9 @@ using Microsoft.Data.SqlClient;
 using Mobilidade.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Mobilidade.Application.CasosDeUso;
+using Mobilidade.Application.Eventos;
+using Mobilidade.Application.Eventos.Manipuladores;
+using Mobilidade.Domain.Eventos;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,11 +17,13 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 
 builder.Services.AddScoped<IIncidenteRepository, RepositorioIncidentesEfCore>();
+builder.Services.AddScoped<IAuditoriaRepository, RepositorioAuditoriaEfCore>();
 builder.Services.AddTransient<IIncidenteImportador, ImportadorIncidentesCsv>();
-//builder.Services.AddScoped<ServicoAberturaIncidente>();
 builder.Services.AddScoped<AbrirIncidente>();
 builder.Services.AddScoped<EncerrarIncidente>();
 builder.Services.AddScoped<RegistrarAtendimento>();
+builder.Services.AddScoped<IDespachadorDeEventos, Despachador>();
+builder.Services.AddScoped<IManipuladorDeEvento<IncidenteAberto>, RegistrarAuditoriaAoAbrirIncidenteGrave>();
 
 builder.Services.AddDbContext<IncidentesDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));

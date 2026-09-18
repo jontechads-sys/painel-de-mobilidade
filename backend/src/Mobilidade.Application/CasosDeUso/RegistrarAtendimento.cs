@@ -1,16 +1,21 @@
+using Mobilidade.Application.Eventos;
 using Mobilidade.Application.Repositorio;
-using Mobilidade.Domain.ValueObjects;
 using Mobilidade.Domain.Entity;
+using Mobilidade.Domain.ValueObjects;
 
 namespace Mobilidade.Application.CasosDeUso;
 
 public class RegistrarAtendimento
 {
     private readonly IIncidenteRepository _repositorio;
+    private readonly IDespachadorDeEventos _despachador;
 
-    public RegistrarAtendimento(IIncidenteRepository repositorio)
+    public RegistrarAtendimento(
+        IIncidenteRepository repositorio,
+        IDespachadorDeEventos despachador)
     {
         _repositorio = repositorio;
+        _despachador = despachador;
     }
 
     public int Executar(
@@ -24,8 +29,15 @@ public class RegistrarAtendimento
         {
             throw new KeyNotFoundException("Id inexistente no banco");
         }
+
         incidente.RegistrarAtendimento(dataHora, orgaoReponsavel, situacao);
         _repositorio.Salvar(incidente);
+
+        foreach (var evento in incidente.Eventos)
+            _despachador.Publicar(evento);
+
+        incidente.LimparEventos();
+
         return incidente.Id;
     }
 }
