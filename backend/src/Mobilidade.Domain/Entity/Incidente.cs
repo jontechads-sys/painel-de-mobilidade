@@ -34,7 +34,7 @@ public sealed class Incidente
     }
     public TipoIncidente Tipo { get; set; }
     public Severidade Severidade { get; private set; }
-    public int BairroId { get; set; }
+    public int BairroId { get; private set; }
     public string? Descricao { get; set; }
 
     public Bairro? Bairro { get; set; }
@@ -92,5 +92,14 @@ public sealed class Incidente
             _atendimentos.Add(atendimento);
             _eventos.Add(new AtendimentoRegistrado(Id, orgaoResponsavel, dataHora));
         }
+    }
+    public void MudarBairro(int bairroId)
+    {
+        if (!Periodo.EstaEmAberto)
+        {
+            throw new DomainException("Incidente encerrado não pode ter o bairro alterado.");
+        }
+
+        BairroId = bairroId;
     }
 }

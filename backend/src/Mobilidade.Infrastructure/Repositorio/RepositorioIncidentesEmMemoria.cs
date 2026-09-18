@@ -35,7 +35,7 @@ public class RepositorioIncidentesEmMemoria : IIncidenteRepository
             return null;
         }
         existente.Tipo = incidente.Tipo;
-        existente.BairroId = incidente.BairroId;
+        existente.MudarBairro(incidente.BairroId);
         existente.Descricao = incidente.Descricao;
 
         return existente;

@@ -67,7 +67,7 @@ public class IncidentesController : ControllerBase
         }
 
         incidenteExistente.Tipo = request.Tipo;
-        incidenteExistente.BairroId = request.BairroId;
+        incidenteExistente.MudarBairro(request.BairroId);
         incidenteExistente.Descricao = request.Descricao;
 
         var incidenteAtualizado = _repositorio.Atualizar(id, incidenteExistente);

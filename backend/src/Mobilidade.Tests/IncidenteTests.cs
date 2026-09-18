@@ -91,5 +91,25 @@ public class IncidenteTests
         var evento = Assert.IsType<IncidenteAberto>(Assert.Single(despachador.Publicados));
         Assert.Equal(id, evento.IncidenteId);
     }
+    [Fact]
+    public void MudarBairro_IncidenteAberto_AlteraOBairro()
+    {
+        var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise");
+
+        incidente.MudarBairro(7);
+
+        Assert.Equal(7, incidente.BairroId);
+    }
+
+    [Fact]
+    public void MudarBairro_IncidenteEncerrado_LancaDomainException()
+    {
+        var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise");
+        incidente.Encerrar();
+
+        var excecao = Assert.Throws<DomainException>(() => incidente.MudarBairro(7));
+
+        Assert.Equal("Incidente encerrado não pode ter o bairro alterado.", excecao.Message);
+    }
 
 }
