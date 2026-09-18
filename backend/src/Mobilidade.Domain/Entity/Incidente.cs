@@ -1,5 +1,6 @@
 using Mobilidade.Domain.ValueObjects;
 using Mobilidade.Domain.Eventos;
+using Mobilidade.Domain.Excecoes;
 
 namespace Mobilidade.Domain.Entity;
 
@@ -25,10 +26,10 @@ public sealed class Incidente
         Periodo = periodo;
 
         if (periodo.Inicio > DateTime.UtcNow)
-            throw new ArgumentException("Incidente não pode ser iniciado com data e hora futuras", nameof(periodo));
+            throw new DomainException("Incidente não pode ser iniciado com data e hora futuras");
 
         if (severidade == Severidade.NaoTriada)
-            throw new ArgumentException("Severidade Ausente", nameof(severidade));
+            throw new DomainException("Incidente não pode ser aberto sem severidade definida");
         Severidade = severidade;
     }
     public TipoIncidente Tipo { get; set; }
@@ -72,7 +73,7 @@ public sealed class Incidente
     {
         if (!Periodo.EstaEmAberto)
         {
-            throw new InvalidOperationException("Incidente já foi encerrado");
+            throw new DomainException("Incidente já foi encerrado");
         }
 
         Periodo = new Periodo(Periodo.Inicio, DateTime.UtcNow);
@@ -83,7 +84,7 @@ public sealed class Incidente
     {
         if (!Periodo.EstaEmAberto)
         {
-            throw new InvalidOperationException("Incidente encerrado não aceita novo atendimento.");
+            throw new DomainException("Incidente encerrado não aceita novo atendimento.");
         }
         var atendimento = new Atendimento(Id, orgaoResponsavel, dataHora, situacao);
         {
