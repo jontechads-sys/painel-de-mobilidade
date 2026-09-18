@@ -15,8 +15,8 @@ public enum TipoIncidente
 public sealed class Incidente
 {
     public void LimparEventos() => _eventos.Clear();
-    private readonly List<object> _eventos = new();
-    public IReadOnlyCollection<object> Eventos => _eventos;
+    private readonly List<IEventoDeDominio> _eventos = new();
+    public IReadOnlyCollection<IEventoDeDominio> Eventos => _eventos;
     private Incidente() { }
     public Periodo Periodo { get; private set; }
     public int Id { get; set; }
