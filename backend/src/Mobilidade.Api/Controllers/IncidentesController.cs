@@ -27,16 +27,18 @@ public class IncidentesController : ControllerBase
     [HttpPost]
     public IActionResult Criar(CriarIncidenteRequest request)
     {
+        var severidade = Severidade.DeInt(request.Severidade);
+
         var incidenteCriado = _abrirIncidente.Executar(
             request.DataHora,
-            request.Severidade,
+            severidade,
             request.BairroId,
             request.Descricao,
             request.OrgaoResponsavel,
             request.Situacao);
 
         var incidenteCompleto = _repositorio.BuscarPorId(incidenteCriado);
-        return CreatedAtAction(nameof(BuscarPorId), new { id = incidenteCriado}, incidenteCompleto);
+        return CreatedAtAction(nameof(BuscarPorId), new { id = incidenteCriado }, incidenteCompleto);
     }
 
     [HttpGet("{id}")]

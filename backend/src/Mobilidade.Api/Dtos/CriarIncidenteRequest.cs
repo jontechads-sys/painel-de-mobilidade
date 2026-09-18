@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using Mobilidade.Domain.Entity;
-using Mobilidade.Domain.ValueObjects;
 
 
 namespace Mobilidade.Api.Dtos;
@@ -8,7 +7,7 @@ namespace Mobilidade.Api.Dtos;
 public sealed record CriarIncidenteRequest(
     DateTime DataHora,
     TipoIncidente Tipo,
-    Severidade Severidade,
+    int Severidade,
     int BairroId,
     string? Descricao,
     string OrgaoResponsavel,
