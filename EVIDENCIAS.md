@@ -1279,3 +1279,154 @@ resolve.
   das mensagens — que é o que a issue pede, o porquê de cada commit — já
   está lá.
 
+  ## Semana 6: CQRS — SQL da query com projeção vs. carregar o agregado
+
+### O que se quer provar
+
+Uma query de leitura que projeta direto para DTO gera SQL visivelmente menor
+do que carregar o agregado inteiro pelo repositório. A comparação foi feita
+com `ToQueryString()`, que produz o SQL sem executá-lo.
+
+### Comando
+
+Endpoint temporário em `Program.cs`, usado só para capturar os dois SQLs:
+
+```csharp
+app.MapGet("/api/debug/sql", (IncidentesDbContext ctx) =>
+{
+    var sqlProjecao = ctx.Incidentes
+        .AsNoTracking()
+        .Select(i => new { i.Id, i.Periodo.Inicio, Severidade = i.Severidade.Nome,
+                           Bairro = i.Bairro!.Nome, EstaEmAberto = i.Periodo.Fim == null })
+        .ToQueryString();
+
+    var sqlAgregado = ctx.Incidentes
+        .Include(i => i.Bairro)
+        .Include(i => i.Atendimentos)
+        .ToQueryString();
+
+    return Results.Text($"...{sqlProjecao}...{sqlAgregado}");
+});
+```
+
+```bash
+curl http://localhost:5041/api/debug/sql
+```
+
+### SQL gerado pela query com projeção (`ListarIncidentesHandler`)
+
+```sql
+SELECT [i].[Id], [i].[Periodo_Inicio], [i].[Severidade], [b].[Nome], CASE
+    WHEN [i].[Periodo_Fim] IS NULL THEN CAST(1 AS bit)
+    ELSE CAST(0 AS bit)
+END
+FROM [Incidentes] AS [i]
+INNER JOIN [Bairros] AS [b] ON [i].[BairroId] = [b].[Id]
+```
+
+### SQL gerado carregando a entidade inteira (caminho do repositório)
+
+```sql
+SELECT [i].[Id], [i].[BairroId], [i].[Descricao], [i].[Severidade], [i].[Tipo], [i].[Periodo_Fim], [i].[Periodo_Inicio], [b].[Id], [b].[Nome], [a].[Id], [a].[DataHora], [a].[IncidenteId], [a].[OrgaoResponsavel], [a].[Situacao]
+FROM [Incidentes] AS [i]
+INNER JOIN [Bairros] AS [b] ON [i].[BairroId] = [b].[Id]
+LEFT JOIN [Atendimento] AS [a] ON [i].[Id] = [a].[IncidenteId]
+ORDER BY [i].[Id], [b].[Id]
+```
+
+### A diferença
+
+A projeção traz **5 colunas de 2 tabelas**; o agregado traz **14 colunas de 3
+tabelas**, incluindo `Descricao`, que é `nvarchar(max)` e pode ser grande.
+
+O agregado precisa do `LEFT JOIN Atendimento` porque a invariante 1 diz que
+todo incidente tem atendimentos, e o EF tem que materializar a coleção. Isso
+multiplica linhas: um incidente com cinco atendimentos vira cinco linhas que o
+EF reagrupa em memória. A projeção não conhece `Atendimento` e devolve uma
+linha por incidente.
+
+O `ORDER BY [i].[Id], [b].[Id]` existe só no agregado — o EF precisa das linhas
+agrupadas para remontar cada incidente com sua coleção. A projeção não ordena
+nada, porque não tem o que remontar.
+
+### Observação sobre `Severidade`
+
+O SQL da projeção traz `[i].[Severidade]` (o `int` da coluna), não o nome. O
+`.Nome` do DTO é resolvido em memória, pelo `ValueConverter` da decisão #5, que
+reconstrói o Value Object a partir do inteiro. Ou seja, a projeção não conseguiu
+empurrar essa conversão para o banco — mas também não precisou carregar nada a
+mais por causa disso: a coluna viria de qualquer forma.
+
+### As três queries respondendo
+
+Todas contra a API rodando em `http://localhost:5041`, com o banco real. O
+controller não usa `IIncidenteRepository` em nenhuma delas.
+
+**`ListarIncidentes` — DTO de resumo, 5 campos:**
+
+```bash
+curl -i http://localhost:5041/api/Incidentes
+```
+
+```
+HTTP/1.1 200 OK
+
+[{"id":2,"inicio":"2026-09-03T00:00:00","severidade":"NaoTriada","bairro":"Centro","estaEmAberto":true},
+ {"id":13,"inicio":"2026-09-08T21:51:04.5823336","severidade":"Alta","bairro":"Centro","estaEmAberto":true},
+ ... 28 registros no total ...
+ {"id":64,"inicio":"2026-09-18T10:00:00","severidade":"Alta","bairro":"Centro","estaEmAberto":true}]
+```
+
+A `severidade` sai como nome e o `bairro` como nome — nenhum objeto aninhado,
+nenhuma coleção de atendimentos, nenhum campo que a listagem não use.
+
+**`BuscarIncidentePorId` — DTO de detalhe:**
+
+```bash
+curl -i http://localhost:5041/api/Incidentes/64
+```
+
+```
+HTTP/1.1 200 OK
+
+{"id":64,"inicio":"2026-09-18T10:00:00","fim":null,"severidade":"Alta","bairro":"Centro","tipo":0,"descricao":"teste ok","quantidadeAtendimentos":1}
+```
+
+`quantidadeAtendimentos` é um número, não a lista. A projeção manda o banco
+contar; nenhum objeto `Atendimento` é materializado.
+
+**`IncidentesPorBairro` — filtro de período usando o `Periodo`:**
+
+Sem estreitar o período (setembro inteiro), devolve os 28:
+
+```bash
+curl -i "http://localhost:5041/api/Incidentes/bairro/1?inicio=2026-09-01T00:00:00&fim=2026-09-30T23:59:59"
+```
+
+```
+[ ... 28 registros ... ]
+```
+
+Estreitando para um único dia, devolve 4:
+
+```bash
+curl -i "http://localhost:5041/api/Incidentes/bairro/1?inicio=2026-09-17T00:00:00&fim=2026-09-17T23:59:59"
+```
+
+```
+HTTP/1.1 200 OK
+
+[{"id":60,"inicio":"2026-09-17T10:00:00","severidade":"Alta","bairro":"Centro","estaEmAberto":true},
+ {"id":61,"inicio":"2026-09-17T10:00:00","severidade":"Alta","bairro":"Centro","estaEmAberto":true},
+ {"id":62,"inicio":"2026-09-17T10:00:00","severidade":"Alta","bairro":"Centro","estaEmAberto":true},
+ {"id":63,"inicio":"2026-09-17T10:00:00","severidade":"Alta","bairro":"Centro","estaEmAberto":true}]
+```
+
+Os dois períodos foram consultados em sequência, contra os mesmos dados: 28
+contra 4 mostra o filtro fazendo efeito, não uma consulta que ignora o
+intervalo.
+
+O `Periodo` entra aqui como **parâmetro de entrada**, não como coluna
+consultada: `IncidentesPorBairroQuery(int BairroId, Periodo Intervalo)`, e o
+handler usa `Intervalo.Inicio` e `Intervalo.Fim` como limites do `WHERE`.
+Período sem fim (`Fim == null`) é tratado como "até agora".

@@ -1273,3 +1273,140 @@ gambiarra e a marcação correta seria essa coluna.
 `EVIDENCIAS.md`, seção "Semana 6: Incidentes legados sem atendimento", com
 o `SELECT` dos seis órfãos antes, o SQL executado pela migration, e a
 contagem zerada depois.
+
+## 27. MediatR reavaliado para commands e queries, mantido fora por prazo
+
+**O que foi decidido**
+
+Commands e queries continuam sem biblioteca de mediação. Os commands são os
+casos de uso existentes (`AbrirIncidente`, `RegistrarAtendimento`,
+`EncerrarIncidente`), invocados diretamente pelo controller; as queries são
+handlers próprios que recebem o `DbContext` por injeção.
+
+**Por que esta decisão é separada da #17**
+
+A #17 rejeitou MediatR para despacho de eventos de domínio. Este é outro uso
+da mesma biblioteca, com outra conta: lá era um handler, aqui são seis. Citar
+a #17 como resposta seria reaproveitar um argumento que não foi feito para
+este caso.
+
+**Alternativa considerada**
+
+MediatR com `IRequest`/`IRequestHandler`, o controller injetando `ISender` em
+vez dos casos de uso, e `IPipelineBehavior` para o que hoje está repetido.
+
+**Por que foi rejeitada — e o que a favorecia**
+
+A alternativa é mais forte aqui do que era na #17, e vale registrar o que ela
+resolveria:
+
+- Os três casos de uso repetem o mesmo bloco de despacho de eventos
+  (`foreach` + `LimparEventos()`). Um `IPipelineBehavior` colocaria isso num
+  lugar só, executado depois de todo command.
+- Seis handlers já é escala onde o registro manual no `Program.cs` começa a
+  incomodar.
+
+Contra, do lado técnico: o projeto já tem um mecanismo de mediação próprio
+para eventos (decisão #17). Adotar MediatR só para commands e queries deixaria
+dois mecanismos convivendo, e unificar exigiria reescrever o despachador de
+eventos também. MediatR passou a ter licença comercial a partir da v12 acima
+de certo uso, o que é considerável num projeto que pode crescer.
+
+Mas o motivo real da rejeição é prazo, e é escrito como tal: a decisão foi
+tomada às 14h30 da sexta de entrega, com a Parte 2 inteira por fazer.
+Converter seis handlers, trocar a injeção no controller e descobrir o que
+quebra consumiria o tempo que a prova exigida pelo enunciado — a comparação
+entre o SQL da query com projeção e o SQL de carregar o agregado — precisa.
+Não há argumento técnico que torne a alternativa pior; há um relógio.
+
+**O que mudaria de ideia**
+
+Duas coisas, independentes:
+
+1. Tempo. Sem o prazo de hoje, a adoção seria experimentada, medindo quanto
+   do código atual o `IPipelineBehavior` de fato elimina.
+2. Um terceiro uso de mediação aparecer (por exemplo, comandos vindos de fila
+   ou de job agendado). Com três mecanismos diferentes, escrever o próprio
+   deixa de compensar.
+
+**Evidência**
+
+Ausência do pacote em `Mobilidade.Application.csproj` e
+`Mobilidade.Api.csproj`. Registro manual dos casos de uso e handlers em
+`Program.cs`.
+
+## 28. Handlers de query em `Infrastructure`, DTOs em `Application`
+
+**O que foi decidido**
+
+Os DTOs de leitura (`IncidenteResumoDto`, `IncidenteDetalheDto`) ficam em
+`Mobilidade.Application/Consultas/`. Os handlers que os produzem
+(`ListarIncidentesHandler`, `BuscarIncidentePorIdHandler`,
+`IncidentesPorBairroHandler`) ficam em `Mobilidade.Infrastructure/Consultas/`,
+recebendo `IncidentesDbContext` por injeção. O controller injeta os handlers
+concretos, sem interface no meio.
+
+**O problema que força a escolha**
+
+`Mobilidade.Application` referencia apenas `Mobilidade.Domain` — é o que a
+decisão #13 estabeleceu, e a direção da seta é a base do desenho de camadas.
+Uma query precisa do `DbContext`, que vive em `Infrastructure`. Colocar o
+handler em `Application` exigiria que `Application` passasse a referenciar
+`Infrastructure`, invertendo essa seta.
+
+**Alternativas consideradas**
+
+1. `Application` referencia `Infrastructure`, e os handlers ficam junto dos
+   DTOs.
+2. Interface `IConsultaDeIncidentes` em `Application`, implementação em
+   `Infrastructure` — mantendo a direção e dando ao controller um contrato
+   abstrato.
+
+**Por que foram rejeitadas**
+
+A alternativa 1 quebra a única regra estrutural que o projeto sustenta desde a
+Semana 5. Resolveria em um minuto e custaria o desenho inteiro.
+
+A alternativa 2 é mais defensável, e foi a mais difícil de descartar. O que
+pesou contra: a interface teria um método por query, cresceria a cada consulta
+nova, e o controller passaria a depender de uma abstração que existe só para
+esconder o `DbContext`. Isso é a definição de um repositório de leitura — e o
+enunciado desta missão diz explicitamente que a query "não passa pelo
+repositório de escrita, vai direto ao `DbContext`". Recriar um repositório com
+outro nome contraria o que se queria demonstrar.
+
+**O custo assumido**
+
+`Mobilidade.Api` passa a depender de tipos concretos de `Infrastructure` para
+leitura. Não é dependência nova — o `Program.cs` já registra
+`RepositorioIncidentesEfCore` e `IncidentesDbContext` — mas é mais uso dela.
+
+O que isso impede: trocar o EF Core por outra coisa sem tocar no controller.
+Mas as queries *são* EF Core; o `Select` que vira SQL é o ponto do exercício.
+E impede testar o controller sem banco — custo que hoje não se materializa,
+porque a decisão #23 já registrou que não há testes de integração.
+
+**Por que os DTOs ficam em `Application`**
+
+Eles são o contrato de leitura que a camada de aplicação oferece, e não
+dependem de nada de infraestrutura. Se um dia as queries mudarem de tecnologia,
+os DTOs continuam valendo — é a parte estável.
+
+Eles também são deliberadamente separados dos DTOs de entrada em `Api/Dtos/`:
+aqueles são contratos HTTP com anotações de validação, que mudam quando o
+cliente muda. Os de leitura mudam quando a tela precisa de outro campo. Ciclos
+de mudança independentes.
+
+**O que mudaria de ideia**
+
+Se surgisse um segundo consumidor das queries além da API — um worker, um job
+de relatório — a interface da alternativa 2 passaria a valer, porque aí o
+contrato serviria a mais de um chamador em vez de existir só para satisfazer
+uma regra de camadas.
+
+**Evidência**
+
+`Mobilidade.Application.csproj`, que referencia apenas `Mobilidade.Domain`.
+Os três handlers em `Mobilidade.Infrastructure/Consultas/`, os DTOs em
+`Mobilidade.Application/Consultas/`. `EVIDENCIAS.md`, seção "Semana 6: CQRS",
+com o SQL gerado e as três queries respondendo.
