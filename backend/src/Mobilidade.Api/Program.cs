@@ -42,9 +42,34 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+
+    // Endpoint de diagnostico: imprime o SQL gerado pela query com projecao e o
+    // de carregar o agregado inteiro, para comparacao. Usa ToQueryString(), que
+    // nao executa nada no banco. Ver EVIDENCIAS.md, secao "Semana 6: CQRS".
+    app.MapGet("/api/debug/sql", (IncidentesDbContext ctx) =>
+    {
+        var sqlProjecao = ctx.Incidentes
+            .AsNoTracking()
+            .Select(i => new
+            {
+                i.Id,
+                i.Periodo.Inicio,
+                Severidade = i.Severidade.Nome,
+                Bairro = i.Bairro!.Nome,
+                EstaEmAberto = i.Periodo.Fim == null
+            })
+            .ToQueryString();
+
+        var sqlAgregado = ctx.Incidentes
+            .Include(i => i.Bairro)
+            .Include(i => i.Atendimentos)
+            .ToQueryString();
+
+        return Results.Text($"=== COM PROJECAO ===\n\n{sqlProjecao}\n\n=== AGREGADO INTEIRO ===\n\n{sqlAgregado}");
+    });
 }
 
-//app.UseExceptionHandler();
+app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.MapControllers();
 
@@ -79,27 +104,6 @@ app.MapPost("/api/incidentes/importar", async (
 
     return Results.Ok(new { importados = resultado.Incidentes.Count, avisos = resultado.Avisos });
 })
-
 .WithName("ImportarIncidentesCsv");
-app.MapGet("/api/debug/sql", (IncidentesDbContext ctx) =>
-{
-    var sqlProjecao = ctx.Incidentes
-        .AsNoTracking()
-        .Select(i => new
-        {
-            i.Id,
-            i.Periodo.Inicio,
-            Severidade = i.Severidade.Nome,
-            Bairro = i.Bairro!.Nome,
-            EstaEmAberto = i.Periodo.Fim == null
-        })
-        .ToQueryString();
 
-    var sqlAgregado = ctx.Incidentes
-        .Include(i => i.Bairro)
-        .Include(i => i.Atendimentos)
-        .ToQueryString();
-
-    return Results.Text($"=== COM PROJECAO ===\n\n{sqlProjecao}\n\n=== AGREGADO INTEIRO ===\n\n{sqlAgregado}");
-});
 app.Run();

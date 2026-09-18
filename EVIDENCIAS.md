@@ -1289,7 +1289,7 @@ com `ToQueryString()`, que produz o SQL sem executá-lo.
 
 ### Comando
 
-Endpoint temporário em `Program.cs`, usado só para capturar os dois SQLs:
+Endpoint de diagnostico em `Program.cs`, usado só para capturar os dois SQLs:
 
 ```csharp
 app.MapGet("/api/debug/sql", (IncidentesDbContext ctx) =>
@@ -1312,6 +1312,10 @@ app.MapGet("/api/debug/sql", (IncidentesDbContext ctx) =>
 ```bash
 curl http://localhost:5041/api/debug/sql
 ```
+O endpoint foi mantido no código, não removido após capturar a saída: ele não
+toca no banco (`ToQueryString()` só gera o texto do SQL) e serve para conferir
+o SQL de qualquer projeção futura sem precisar recriá-lo. Fica sob `/api/debug/`
+para deixar claro que não faz parte do contrato da aplicação.
 
 ### SQL gerado pela query com projeção (`ListarIncidentesHandler`)
 
@@ -1430,3 +1434,4 @@ O `Periodo` entra aqui como **parâmetro de entrada**, não como coluna
 consultada: `IncidentesPorBairroQuery(int BairroId, Periodo Intervalo)`, e o
 handler usa `Intervalo.Inicio` e `Intervalo.Fim` como limites do `WHERE`.
 Período sem fim (`Fim == null`) é tratado como "até agora".
+
