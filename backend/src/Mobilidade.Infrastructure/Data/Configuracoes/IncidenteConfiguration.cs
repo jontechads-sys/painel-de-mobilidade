@@ -11,8 +11,11 @@ public class IncidenteConfiguration : IEntityTypeConfiguration<Incidente>
     {
         builder.HasKey(i => i.Id);
 
-        builder.Property(i => i.DataHora)
-            .IsRequired();
+        builder.OwnsOne(i => i.Periodo, periodoBuilder =>
+        {            
+                periodoBuilder.Property(p => p.Inicio).IsRequired();
+            periodoBuilder.Property(p => p.Fim);
+            });
 
         builder.Property(i => i.Tipo)
             .IsRequired();

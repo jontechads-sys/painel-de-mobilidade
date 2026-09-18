@@ -30,7 +30,7 @@ public static class RelatorioConsultas
     public static IReadOnlyList<(DayOfWeek DiaDaSemana, double Media)> MediaPorDiaDaSemana(
         IEnumerable<Incidente> incidentes)
         => incidentes
-            .GroupBy(i => i.DataHora.Date)
+        .GroupBy(i => i.Periodo.Inicio.Date)
             .Select(g => new { g.Key.DayOfWeek, Quantidade = g.Count() })
             .GroupBy(x => x.DayOfWeek)
             .Select(g => (DiaDaSemana: g.Key, Media: g.Average(x => x.Quantidade)))
