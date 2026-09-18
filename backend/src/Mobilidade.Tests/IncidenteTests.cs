@@ -1,3 +1,4 @@
+using Mobilidade.Domain.Excecoes;
 using Mobilidade.Domain.Entity;
 using Mobilidade.Domain.ValueObjects;
 using Mobilidade.Domain.Eventos;
@@ -11,38 +12,38 @@ namespace Mobilidade.Tests;
 public class IncidenteTests
 {
     [Fact]
-    public void Criar_ComDataHoraFutura_LancaArgumentException()
+    public void Criar_ComDataHoraFutura_LancaDomainException()
     {
         var dataFutura = DateTime.UtcNow.AddDays(1);
 
-        Assert.Throws<ArgumentException>(() =>
+        Assert.Throws<DomainException>(() =>
             Incidente.Abrir(dataFutura, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise"));
     }
 
     [Fact]
-    public void Criar_ComSeveridadeNaoTriada_LancaArgumentException()
+    public void Criar_ComSeveridadeNaoTriada_LancaDomainException()
     {
-        Assert.Throws<ArgumentException>(() =>
+        Assert.Throws<DomainException>(() =>
             Incidente.Abrir(DateTime.UtcNow, Severidade.NaoTriada, 1, "teste", "Defesa Civil", "Em analise"));
     }
     [Fact]
-    public void Encerrar_QuandoIncidenteJaEstiverEncerrado_LancaInvalidOperationException()
+    public void Encerrar_QuandoIncidenteJaEstiverEncerrado_LancaDomainException()
     {
         var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise");
         incidente.Encerrar();
 
-        var excecao = Assert.Throws<InvalidOperationException>(() => incidente.Encerrar());
+        var excecao = Assert.Throws<DomainException>(() => incidente.Encerrar());
 
         Assert.Equal("Incidente já foi encerrado", excecao.Message);
     }
 
     [Fact]
-    public void RegistrarAtendimento_QuandoIncidenteEstaEncerrado_LancaInvalidOperationException()
+    public void RegistrarAtendimento_QuandoIncidenteEstaEncerrado_LancaDomainException()
     {
         var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise");
         incidente.Encerrar();
 
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<DomainException>(() =>
             incidente.RegistrarAtendimento(DateTime.UtcNow, "Bombeiros", "A caminho"));
     }
 
@@ -62,30 +63,19 @@ public class IncidenteTests
     [Fact]
     public void Encerrar_QuandoJaEstaEncerrado_NaoAdicionaSegundoEventoNaLista()
     {
-        // Arrange
-        // TODO: cria um Incidente válido via Incidente.Abrir(...)
-        // TODO: chama Encerrar() uma vez (deve funcionar, gera 1 evento)
         var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Serviço Militar", "Em analise");
         incidente.Encerrar();
-        // Act
-        // TODO: chama Encerrar() de novo — isso deve lançar exceção
-        Assert.Throws<InvalidOperationException>(() => incidente.Encerrar());
-        // Assert 
-        // TODO: verifica que a lista de eventos continua com só 1 item
-        //       (não 2 — a segunda tentativa não deve ter adicionado nada)
+
+        Assert.Throws<DomainException>(() => incidente.Encerrar());
         Assert.Single(incidente.Eventos);
     }
 
     [Fact]
     public void Encerrar_IncidenteAberto_AdicionaEventoNaLista()
     {
-        // Arrange
         var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Serviço Militar", "Em analise");
-        // Act
         incidente.Encerrar();
-        // Assert
-        // TODO: verifica que a lista de eventos tem exatamente 1 item
-        // TODO: verifica que esse item é do tipo IncidenteEncerrado
+
         Assert.Single(incidente.Eventos);
         Assert.IsType<IncidenteEncerrado>(incidente.Eventos.First());
     }
