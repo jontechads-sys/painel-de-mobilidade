@@ -1195,3 +1195,87 @@ instante foi inventado.
   em atendimento real.
 - **Custo assumido:** esses seis ocupam a mesma tabela dos atendimentos
   reais e entram em qualquer contagem que não os filtre.
+
+  ## Git e cadência — Semana 6
+
+### Rebase sobre o `main` atualizado
+
+**O que se quer provar:** que a branch `semana-06` está baseada no `main`
+atual, e não numa versão defasada dele.
+
+```bash
+git fetch origin
+git rebase origin/main
+```
+**Saída:**
+```Current branch semana-06 is up to date``` 
+
+Não houve commit para reaplicar: a branch foi criada a partir do `main` já
+atualizado e nenhum commit entrou no `main` desde então. A saída confirma o
+alinhamento — é o resultado correto, não um comando que falhou.
+
+### Rebase interativo tentado e abortado
+
+**O que se quer provar:** os sete commits da Parte 1 ficaram com assunto e
+corpo na mesma linha, porque as quebras se perderam ao colar as mensagens no
+terminal. A tentativa de corrigir com `rebase -i` foi abortada ao perceber
+que estava embaralhando os commits.
+
+```bash
+git rebase -i HEAD~7
+```
+
+O `--amend` do primeiro commit aplicou a mensagem errada (a do último commit
+da lista), e o commit original ficou vazio:
+```
+The previous cherry-pick is now empty, possibly due to conflict resolution.
+If you wish to commit it anyway, use:
+git commit --allow-empty
+Otherwise, please use 'git rebase --skip'
+...
+Could not apply a025111... # tipa a colecao de eventos do agregado
+```
+
+Continuar dali significaria reescrever sete commits num estado já
+inconsistente, com risco de perder conteúdo. Abortado:
+
+```bash
+git rebase --abort
+git stash pop
+```
+
+```bash
+git log --oneline -7
+```
+**Saída:**
+```
+cc3e230 (HEAD -> semana-06) registra o ciclo do handler e as decisoes 16, 17 e 18 ...
+c5a4ede prova que a auditoria depende do despacho, nao do acaso ...
+72ed522 desbloqueia a criacao de incidente pela API ...
+35762ae despacha os eventos depois que a transacao foi persistida ...
+2c12676 entrega eventos aos interessados sem o agregado saber quem sao ...
+eb9374f da a Auditoria um caminho de escrita a partir do codigo ...
+a025111 tipa a colecao de eventos do agregado ...
+```
+
+
+Os sete commits voltaram intactos, com os hashes originais. O conteúdo de
+cada mensagem está correto; o que ficou por corrigir é a formatação (assunto
+e corpo na mesma linha), que não altera o histórico nem o que cada commit
+resolve.
+
+### Por quê
+
+- **`--abort` em vez de seguir:** um rebase interativo que já aplicou a
+  mensagem errada num commit e esvaziou outro não se conserta seguindo em
+  frente. Abortar devolve o estado exato de antes, e o custo é só a
+  formatação continuar imperfeita.
+- **`git stash` antes do rebase:** o `appsettings.json` tem a senha real do
+  banco local e fica deliberadamente fora dos commits (decisão #12). O
+  rebase recusa rodar com mudanças não commitadas, então o arquivo é
+  guardado e recuperado depois — sem nunca entrar no histórico.
+- **Formatação das mensagens não corrigida:** decisão de prazo. Corrigir os
+  sete exigiria sete `reword` sequenciais no dia da entrega, e o conteúdo
+  das mensagens — que é o que a issue pede, o porquê de cada commit — já
+  está lá.
+
