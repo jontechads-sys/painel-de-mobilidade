@@ -9,10 +9,15 @@ using Mobilidade.Application.CasosDeUso;
 using Mobilidade.Application.Eventos;
 using Mobilidade.Application.Eventos.Manipuladores;
 using Mobilidade.Domain.Eventos;
+using Mobilidade.Api.Filtros;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles);
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<DomainExceptionFilter>();
+})
+.AddJsonOptions(options => options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles);
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 
@@ -34,7 +39,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseExceptionHandler();
+//app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.MapControllers();
 

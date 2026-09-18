@@ -27,15 +27,15 @@ public class IncidentesController : ControllerBase
     [HttpPost]
     public IActionResult Criar(CriarIncidenteRequest request)
     {
-        var severidade = Severidade.DeInt(request.Severidade);
+        var severidade = Severidade.DeInt(request.Severidade!.Value);
 
         var incidenteCriado = _abrirIncidente.Executar(
-            request.DataHora,
+            request.DataHora!.Value,
             severidade,
-            request.BairroId,
+            request.BairroId!.Value,
             request.Descricao,
-            request.OrgaoResponsavel,
-            request.Situacao);
+            request.OrgaoResponsavel!,
+            request.Situacao!);
 
         var incidenteCompleto = _repositorio.BuscarPorId(incidenteCriado);
         return CreatedAtAction(nameof(BuscarPorId), new { id = incidenteCriado }, incidenteCompleto);
@@ -88,40 +88,19 @@ public class IncidentesController : ControllerBase
     [HttpPost("{id}/encerrar")]
     public IActionResult Encerrar(int id)
     {
-        try
-        {
-            int incidenteId = _encerrarIncidente.Executar(id);
-            var incidenteCompleto = _repositorio.BuscarPorId(incidenteId);
-            return Ok(incidenteCompleto);
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound();
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        int incidenteId = _encerrarIncidente.Executar(id);
+        var incidenteCompleto = _repositorio.BuscarPorId(incidenteId);
+        return Ok(incidenteCompleto);
     }
 
     [HttpPost("{id}/atendimentos")]
     public IActionResult RegistrarAtendimento(int id, RegistrarAtendimentoRequest request)
     {
-        try
-        {
-            int incidenteId = _registrarAtendimento.Executar(
-                id, request.DataHora, request.OrgaoResponsavel, request.Situacao);
+        int incidenteId = _registrarAtendimento.Executar(
+            id, request.DataHora, request.OrgaoResponsavel, request.Situacao);
 
-            var incidenteCompleto = _repositorio.BuscarPorId(incidenteId);
-            return Ok(incidenteCompleto);
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound();
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Conflict(ex.Message);
-        }
+        var incidenteCompleto = _repositorio.BuscarPorId(incidenteId);
+        return Ok(incidenteCompleto);
     }
 }
+
