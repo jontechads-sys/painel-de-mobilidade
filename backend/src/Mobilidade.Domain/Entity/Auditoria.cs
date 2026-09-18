@@ -1,5 +1,4 @@
 using Mobilidade.Domain.ValueObjects;
-using Mobilidade.Domain.Eventos;
 
 namespace Mobilidade.Domain.Entity;
 
