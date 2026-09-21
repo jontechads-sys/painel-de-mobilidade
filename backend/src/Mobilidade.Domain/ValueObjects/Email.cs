@@ -1,4 +1,5 @@
 using Mobilidade.Domain.Excecoes;
+using System.Net.Mail;
 
 namespace Mobilidade.Domain.ValueObjects;
 
@@ -17,6 +18,14 @@ public class Email
         {
             throw new DomainException("Email é obrigatório.");
         }
-        return new Email(valor);
+
+        var normalizado = valor.Trim().ToLowerInvariant();
+
+        if (!MailAddress.TryCreate(normalizado, out var email))
+        {
+            throw new DomainException("Email em formato inválido.");
+        }
+
+        return new Email(normalizado);
     }
 }
