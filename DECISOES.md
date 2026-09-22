@@ -1410,3 +1410,70 @@ uma regra de camadas.
 Os três handlers em `Mobilidade.Infrastructure/Consultas/`, os DTOs em
 `Mobilidade.Application/Consultas/`. `EVIDENCIAS.md`, seção "Semana 6: CQRS",
 com o SQL gerado e as três queries respondendo.
+
+## 29. `PasswordHasher` do ASP.NET Core Identity (PBKDF2), não SHA256
+
+**O que foi decidido**
+
+O hash de senha usa `PasswordHasher<object>` do ASP.NET Core Identity, que
+aplica PBKDF2 com HMAC-SHA512, salt aleatório de 128 bits por senha e
+100.000 iterações (padrão da v3 do formato). A implementação
+`HasherDeSenhaPbkdf2` vive em `Mobilidade.Infrastructure/Seguranca/`,
+atrás da interface `IHasherDeSenha`, declarada em `Mobilidade.Domain/Interfaces/`.
+
+O `object` no genérico existe porque a API do Identity espera um tipo de
+usuário como primeiro parâmetro de `HashPassword`, mas não o utiliza no
+cálculo — o projeto não adota o Identity inteiro, só o algoritmo.
+
+**Alternativa considerada**
+
+1. `SHA256` ou `MD5`, disponíveis no `System.Security.Cryptography` sem
+   pacote nenhum.
+2. BCrypt, via `BCrypt.Net-Next`.
+3. Argon2, vencedor do Password Hashing Competition.
+
+**Por que foram rejeitadas**
+
+SHA256 e MD5 são hashes de propósito geral, projetados para serem rápidos —
+e velocidade é exatamente a propriedade errada aqui. Uma GPU comum calcula
+bilhões de SHA256 por segundo, o que torna a força bruta sobre um banco
+vazado viável em vez de proibitiva. Eles também não têm salt embutido: duas
+contas com a mesma senha produziriam o mesmo hash, e tabelas pré-calculadas
+(rainbow tables) resolveriam as senhas comuns sem nenhum cálculo novo.
+Nenhuma das duas falhas se corrige "usando SHA256 com cuidado" — o
+algoritmo não tem custo ajustável.
+
+Argon2 é o mais forte dos três candidatos legítimos, por consumir memória
+além de tempo, o que penaliza ataque com GPU de forma que PBKDF2 não
+penaliza. Foi rejeitado por dependência: em .NET não há implementação de
+primeira parte, e os pacotes disponíveis são mantidos por terceiros com
+cadência irregular — numa semana cujo tema é segurança, adicionar
+dependência menos auditada para a peça mais sensível do sistema é troca
+ruim.
+
+BCrypt é tecnicamente adequado e teria servido. O desempate foi
+procedência: `Microsoft.Extensions.Identity.Core` vem do mesmo fornecedor
+do runtime, já alinhado com a versão 10.0.11 usada no resto do projeto, e
+não acrescenta cadeia de manutenção nova. BCrypt também tem o limite de 72
+bytes na senha, que trunca em silêncio — não é problema hoje, mas é um
+comportamento surpreendente a menos.
+
+**O que mudaria de ideia**
+
+Se surgisse implementação de Argon2id mantida pela Microsoft ou equivalente
+em confiabilidade, a troca valeria: a interface `IHasherDeSenha` existe
+justamente para que isso custe uma classe nova na `Infrastructure`, sem
+tocar no `Usuario`. O formato do `PasswordHasher` também carrega a versão
+dentro do próprio hash e devolve `SuccessRehashNeeded` quando o custo está
+defasado, o que permite migrar senha por senha no login, sem obrigar todo
+mundo a trocar de senha.
+
+**Evidência**
+
+`IHasherDeSenha.cs` (Domain), `HasherDeSenhaPbkdf2.cs` (Infrastructure).
+Testes em `UsuarioTests.cs`:
+`Registrar_MesmaSenhaEmDoisUsuarios_GeraHashesDiferentes` prova o salt
+aleatório (mesma senha, mesmo hasher, hashes distintos);
+`SenhaConfere_ComSenhaCerta_RetornaTrue` e
+`SenhaConfere_ComSenhaErrada_RetornaFalse` provam a verificação nos dois
+sentidos. Saída completa em `EVIDENCIAS.md`.
