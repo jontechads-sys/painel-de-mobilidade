@@ -1435,3 +1435,200 @@ consultada: `IncidentesPorBairroQuery(int BairroId, Periodo Intervalo)`, e o
 handler usa `Intervalo.Inicio` e `Intervalo.Fim` como limites do `WHERE`.
 Período sem fim (`Fim == null`) é tratado como "até agora".
 
+## Semana 7: Hash de senha — `Usuario`, `IHasherDeSenha` e PBKDF2
+
+### O que se quer provar
+
+A senha em texto entra em `Usuario.Registrar` e não sai: o agregado guarda
+apenas `SenhaHash`, e não existe propriedade ou método que devolva a senha
+original. Duas contas com a mesma senha produzem hashes diferentes, porque
+o `PasswordHasher` do ASP.NET Core Identity gera salt aleatório por senha.
+A verificação funciona nos dois sentidos: senha certa confere, senha errada
+não confere.
+
+Domínio em `Mobilidade.Domain/Entity/Usuario.cs`, `ValueObjects/Email.cs`,
+`ValueObjects/Papel.cs` e `Interfaces/IHasherDeSenha.cs`. Implementação em
+`Mobilidade.Infrastructure/Seguranca/HasherDeSenhaPbkdf2.cs`. Testes em
+`Mobilidade.Tests/UsuarioTests.cs`.
+
+Os testes usam o hasher real (`new HasherDeSenhaPbkdf2()`), não um dublê —
+um fake com salt fixo faria o teste do salt passar sem provar nada sobre o
+algoritmo que a aplicação de fato usa.
+
+### O contrato cobrado pelo compilador
+
+Antes de implementar os métodos, a classe declarou `: IHasherDeSenha` vazia.
+O build recusou:
+
+```
+Seguranca/HasherDeSenhaPbkdf2.cs(6,36): error CS0535: "HasherDeSenhaPbkdf2"
+não implementa membro de interface "IHasherDeSenha.Gerar(string)"
+Seguranca/HasherDeSenhaPbkdf2.cs(6,36): error CS0535: "HasherDeSenhaPbkdf2"
+não implementa membro de interface "IHasherDeSenha.Verificar(string, string)"
+```
+
+A interface não é documentação: o compilador exige as duas assinaturas
+exatas antes de aceitar a classe como implementação.
+
+### Comando
+
+```bash
+dotnet test --filter UsuarioTests
+```
+
+**Saída:**
+
+```
+[xUnit.net 00:00:00.08]   Discovering: Mobilidade.Tests
+[xUnit.net 00:00:00.13]   Discovered:  Mobilidade.Tests
+[xUnit.net 00:00:00.15]   Starting:    Mobilidade.Tests
+[xUnit.net 00:00:00.55]   Finished:    Mobilidade.Tests
+  Mobilidade.Tests teste net10.0 êxito (1,3s)
+
+Resumo do teste: total: 5; falhou: 0; bem-sucedido: 5; ignorado: 0; duração: 1,3s
+Construir êxito(s) com 4 aviso(s) em 3,3s
+```
+
+> Saídas cortadas: removidos os avisos de build (NU1903, CS8618, CS8602) e a
+> lista de projetos compilados, que se repetem em todas as execuções.
+
+### Os cinco casos
+
+| Teste | O que prova |
+|---|---|
+| `SenhaConfere_ComSenhaCerta_RetornaTrue` | a senha registrada confere contra o próprio hash |
+| `SenhaConfere_ComSenhaErrada_RetornaFalse` | senha diferente não confere |
+| `Registrar_MesmaSenhaEmDoisUsuarios_GeraHashesDiferentes` | salt aleatório por senha |
+| `Registrar_ComSenhaCurta_LancaDomainException` | 7 caracteres é rejeitado |
+| `Registrar_ComSenhaDeOitoCaracteres_CriaUsuario` | 8 caracteres é aceito |
+
+### Os dois testes que falharam antes de passar
+
+**1. `SenhaConfere_ComSenhaErrada_RetornaFalse` — assert invertido**
+
+O primeiro esboço repetiu o `Assert.True` do teste anterior:
+
+```
+Assert.True() Failure
+Expected: True
+Actual:   False
+UsuarioTests.cs(36,0): at UsuarioTests.SenhaConfere_ComSenhaErrada_RetornaFalse()
+```
+
+`Actual: False` é o comportamento correto do domínio — o `SenhaConfere`
+rejeitou a senha errada. O que estava errado era a expectativa do teste.
+Corrigido para `Assert.False`.
+
+Essa falha responde a pergunta que o par de testes existe para responder: se
+`SenhaConfere` devolvesse `true` incondicionalmente, este teste teria passado
+com o `Assert.True`. Ele devolveu `false`, logo a comparação de fato acontece.
+
+**2. `Registrar_ComSenhaCurta_LancaDomainException` — senha longa demais**
+
+A senha usada no primeiro esboço tinha nove caracteres (`"123456789"`), acima
+do mínimo:
+
+```
+Assert.Throws() Failure: No exception was thrown
+Expected: typeof(Mobilidade.Domain.Excecoes.DomainException)
+UsuarioTests.cs(59,0): at UsuarioTests.Registrar_ComSenhaCurta_LancaDomainException()
+```
+
+O `Registrar` aceitou a senha e criou o usuário — correto, já que a regra é
+`Length < 8`. Corrigido para uma senha de sete caracteres.
+
+### Tentativa rejeitada: assert sobre o objeto errado
+
+O teste do salt passou na primeira execução sem provar nada. O assert
+comparava as duas instâncias do hasher:
+
+```csharp
+Assert.NotEqual(hasherUsuario1, hasherUsuario2);
+```
+
+Duas instâncias distintas de uma classe nunca são iguais, então esse assert
+passaria mesmo se o algoritmo não tivesse salt — não olha para senha nem
+para hash. A segunda tentativa comparava `usuario1` com `usuario2`, com o
+mesmo defeito.
+
+Corrigido para comparar os hashes, com um **único** hasher compartilhado
+pelos dois usuários:
+
+```csharp
+Assert.NotEqual(usuario1.SenhaHash, usuario2.SenhaHash);
+```
+
+Com um hasher só, a única explicação possível para a diferença entre os
+hashes é o salt gerado por chamada.
+
+### Conflito de versão de pacote ao instalar o Identity
+
+`dotnet add package Microsoft.Extensions.Identity.Core` (sem versão) trouxe a
+10.0.12 e o restore falhou:
+
+```
+error: NU1605: Downgrade de pacote detectado:
+Microsoft.Extensions.Configuration.Abstractions de 10.0.12 para 10.0.11.
+ Mobilidade.Infrastructure -> Microsoft.Extensions.Identity.Core 10.0.12
+   -> Microsoft.Extensions.Diagnostics 10.0.12
+   -> Microsoft.Extensions.Configuration 10.0.12
+   -> Microsoft.Extensions.Configuration.Abstractions (>= 10.0.12)
+ Mobilidade.Infrastructure
+   -> Microsoft.Extensions.Configuration.Abstractions (>= 10.0.11)
+```
+
+A Infrastructure já usava `Configuration.Abstractions` 10.0.11; a 10.0.12 do
+Identity exigia 10.0.12 ou maior. Resolvido fixando o pacote na versão que o
+resto do projeto usa:
+
+```bash
+dotnet add src/Mobilidade.Infrastructure package Microsoft.Extensions.Identity.Core --version 10.0.11
+```
+
+```
+info : PackageReference do pacote 'Microsoft.Extensions.Identity.Core' versão
+'10.0.11' atualizada no arquivo 'Mobilidade.Infrastructure.csproj'.
+log  : Mobilidade.Infrastructure.csproj restaurado (em 1,34 seg).
+```
+
+### Por quê
+
+- **Interface no Domain, implementação na Infrastructure:** o `Usuario` sabe
+  *que* a senha vira hash; *como* (algoritmo, custo, salt) é decisão de
+  infraestrutura. Mesmo DIP já aplicado a `IIncidenteRepository` — o agregado
+  depende da abstração, e trocar PBKDF2 por outro algoritmo custa uma classe
+  nova, sem tocar no domínio (decisão #29).
+- **PBKDF2 em vez de SHA256:** SHA256 é rápido por projeto, e velocidade é a
+  propriedade errada para senha — uma GPU calcula bilhões por segundo,
+  tornando força bruta sobre banco vazado viável. Também não tem salt
+  embutido nem custo ajustável (decisão #29).
+- **`PasswordHasher<object>`:** a API do Identity espera um tipo de usuário
+  como primeiro parâmetro de `HashPassword`, mas não o usa no cálculo. O
+  projeto não adota o Identity inteiro, só o algoritmo — daí o `object` e a
+  instância descartável `SemUsuario`.
+- **`Verificar` aceita `SuccessRehashNeeded` como sucesso:** esse resultado
+  significa senha correta com hash gerado por um custo antigo. Tratá-lo como
+  falha impediria o login de quem se registrou antes de uma mudança de
+  parâmetros.
+- **`Papel` como value object, não enum:** `(Papel)99` compilaria com enum. Com
+  construtor privado e instâncias estáticas, um terceiro papel é
+  estruturalmente impossível — mesmo raciocínio da decisão #5, aplicado aqui.
+  O `Nome` é a string que vai para a claim `role` e para
+  `[Authorize(Roles = "Admin")]`.
+- **`Email` normaliza para minúsculas e sem espaços:** o índice único da
+  migration compara texto. Sem normalizar, `Fulano@X.com` e `fulano@x.com`
+  seriam duas contas para o mesmo endereço.
+- **A validação de 8 caracteres é testada nos dois lados da fronteira:** 7
+  rejeitado e 8 aceito provam que a regra é `< 8`, não `<= 8`.
+
+### Pendente nesta issue
+
+- Mapeamento de `Usuario` no EF Core e migration com índice único no email.
+- Repositório traduzindo violação de índice único para `DomainException`.
+- Seed do Admin com senha vinda de variável de ambiente, e o grep provando
+  zero ocorrências fora dela.
+- `POST /api/usuarios`.
+- **Prova no banco de que duas contas com a mesma senha têm hashes
+  diferentes.** O teste acima prova em memória; o item da issue pede o
+  `SELECT` na tabela, que depende do mapeamento e da migration. Item
+  permanece desmarcado até lá.
