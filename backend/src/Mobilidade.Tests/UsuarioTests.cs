@@ -58,4 +58,14 @@ public class UsuarioTests
 
         Assert.Throws<DomainException>(() => Usuario.Registrar(email, "123456", Papel.Operador, hasher));
     }
+    [Fact]
+    public void Registrar_ComSenhaDeOitoCaracteres_CriaUsuario()
+    {
+        var hasher = new HasherDeSenhaPbkdf2();
+        var email = Email.Criar("fulano@teste.com");
+
+        var usuario = Usuario.Registrar(email, "12345678", Papel.Operador, hasher);
+
+        Assert.NotNull(usuario.SenhaHash);
+    }
 }
