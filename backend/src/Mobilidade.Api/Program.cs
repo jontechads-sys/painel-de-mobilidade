@@ -11,6 +11,8 @@ using Mobilidade.Application.Eventos.Manipuladores;
 using Mobilidade.Domain.Eventos;
 using Mobilidade.Api.Filtros;
 using Mobilidade.Infrastructure.Consultas;
+using Mobilidade.Domain.Interfaces;
+using Mobilidade.Infrastructure.Seguranca;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,6 +36,7 @@ builder.Services.AddScoped<EncerrarIncidente>();
 builder.Services.AddScoped<RegistrarAtendimento>();
 builder.Services.AddScoped<IDespachadorDeEventos, Despachador>();
 builder.Services.AddScoped<IManipuladorDeEvento<IncidenteAberto>, RegistrarAuditoriaAoAbrirIncidenteGrave>();
+builder.Services.AddScoped<IHasherDeSenha, HasherDeSenhaPbkdf2>();
 
 builder.Services.AddDbContext<IncidentesDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
