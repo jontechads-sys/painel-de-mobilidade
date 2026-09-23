@@ -1984,3 +1984,14 @@ saberia que João e Maria usam a mesma senha — sem quebrar hash nenhum.
 - **Rotação da senha do `sa`.** A credencial da decisão #12 foi exposta de novo
   durante o desenvolvimento desta semana e não foi rotacionada. Dívida em
   aberto.
+
+  ### Grep pela senha do seed — zero ocorrências
+
+```bash
+grep -rn "<senha do seed>" --include="*.cs" --include="*.json" --include="*.md" --include="*.yml" .
+```
+
+**Saída:** vazia. Nenhuma ocorrência da senha do Admin inicial em código,
+configuração, documentação ou arquivos do compose. Ela existe apenas na
+variável de ambiente `ADMIN_SENHA_INICIAL`, lida em tempo de execução pela
+migration `SeedUsuarioAdmin`, e o hash gravado no banco não permite recuperá-la.
