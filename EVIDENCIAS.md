@@ -1623,7 +1623,8 @@ log  : Mobilidade.Infrastructure.csproj restaurado (em 1,34 seg).
 
 ### Pendente nesta issue
 
-- Mapeamento de `Usuario` no EF Core e migration com índice único no email.
+- ~~Mapeamento de `Usuario` no EF Core e migration com índice único no
+  email.~~ **Resolvido** na seção "Semana 7: Migration da tabela `Usuarios`".
 - Repositório traduzindo violação de índice único para `DomainException`.
 - Seed do Admin com senha vinda de variável de ambiente, e o grep provando
   zero ocorrências fora dela.
@@ -1632,3 +1633,170 @@ log  : Mobilidade.Infrastructure.csproj restaurado (em 1,34 seg).
   diferentes.** O teste acima prova em memória; o item da issue pede o
   `SELECT` na tabela, que depende do mapeamento e da migration. Item
   permanece desmarcado até lá.
+
+  ## Semana 7: Migration da tabela `Usuarios` com índice único no email
+
+### O que se quer provar
+
+A tabela `Usuarios` existe no banco com as quatro colunas do agregado, e o
+email tem índice **único** — a garantia de unicidade fica no banco, não numa
+checagem de aplicação que duas requisições simultâneas conseguiriam furar.
+
+Os dois Value Objects (`Email` e `Papel`) são persistidos como texto via
+`ValueConverter`, mesmo mecanismo já usado para `Severidade` na decisão #5.
+
+Configuração em
+`src/Mobilidade.Infrastructure/Data/Configuracoes/UsuarioConfiguration.cs`.
+Registro em `IncidentesDbContext` (`DbSet<Usuario>` + `ApplyConfiguration`).
+
+### Conversão dos Value Objects
+
+```csharp
+builder.Property(u => u.Email)
+    .HasConversion(
+        email => email.Valor,
+        valor => Email.Criar(valor))
+    .HasMaxLength(254)
+    .IsRequired();
+
+builder.Property(u => u.Papel)
+    .HasConversion(
+        papel => papel.Nome,
+        nome => Papel.DeNome(nome))
+    .HasMaxLength(20)
+    .IsRequired();
+
+builder.HasIndex(u => u.Email).IsUnique();
+```
+
+O caminho de volta (`Email.Criar` e `Papel.DeNome`) não é só desserialização:
+são os mesmos métodos de validação usados na criação. Um valor inválido no
+banco — papel `"Gerente"`, email sem `@` — lança `DomainException` na leitura,
+em vez de materializar um agregado em estado impossível.
+
+### Migration criada
+
+```bash
+dotnet ef migrations add CriaTabelaUsuarios --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api
+```
+
+**Saída:**
+```
+Build succeeded.
+Done. To undo this action, use 'ef migrations remove'
+```
+
+### Tentativa de aplicar — falha de conexão
+
+```bash
+dotnet ef database update --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api
+```
+
+**Saída (trecho relevante):**
+```
+Microsoft.Data.SqlClient.SqlException (0x80131904): Erro de rede ou específico
+à instância ao estabelecer conexão com o SQL Server. O servidor não foi
+encontrado ou não estava acessível. (provider: Provedor de TCP, error: 0 -
+Este host não é conhecido.)
+ ---> System.ComponentModel.Win32Exception (11001): Este host não é conhecido.
+Error Number:11001,State:0,Class:20
+```
+
+O banco estava de pé:
+
+```bash
+docker ps
+```
+
+```
+CONTAINER ID   IMAGE                                        STATUS                        PORTS                     NAMES
+6c5ecf2f6f4a   painel-mobilidade-api                        Up 56 seconds                 0.0.0.0:8080->8080/tcp    painel-mobilidade-api-1
+04152ba45c54   mcr.microsoft.com/mssql/server:2022-latest   Up About a minute (healthy)   0.0.0.0:1433->1433/tcp    mobilidade-sqlserver
+```
+
+Erro 11001 é falha de **resolução de nome**, não de autenticação nem de
+servidor fora do ar: o cliente não descobriu o endereço do host. O
+`appsettings.json` aponta para `Server=sqlserver,1433` — nome do serviço no
+`docker-compose.yml`, que só resolve dentro da rede do Compose. O `dotnet ef`
+roda no host, fora dessa rede.
+
+O `appsettings.Development.json`, que apontava para `localhost`, foi deletado
+em commit anterior (ver pendência ao final desta seção).
+
+### Migration aplicada
+
+Contornado passando a connection string do host diretamente:
+
+```bash
+dotnet ef database update --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api --connection "Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=SuaSenhaAqui;TrustServerCertificate=True"
+```
+
+**SQL executado:**
+```
+Applying migration '20260923165425_CriaTabelaUsuarios'.
+
+CREATE TABLE [Usuarios] (
+    [Id] int NOT NULL IDENTITY,
+    [Email] nvarchar(254) NOT NULL,
+    [SenhaHash] nvarchar(255) NOT NULL,
+    [Papel] nvarchar(20) NOT NULL,
+    CONSTRAINT [PK_Usuarios] PRIMARY KEY ([Id])
+);
+
+CREATE UNIQUE INDEX [IX_Usuarios_Email] ON [Usuarios] ([Email]);
+
+INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+VALUES (N'20260923165425_CriaTabelaUsuarios', N'10.0.11');
+Done.
+```
+
+**LINHA RELEVANTE**
+
+`CREATE UNIQUE INDEX [IX_Usuarios_Email] ON [Usuarios] ([Email]);`
+
+> Saídas cortadas: removidos o aviso NU1903, o aviso de versão das ferramentas
+> do EF e os comandos de lock/histórico de migration, que se repetem em toda
+> aplicação.
+
+### Por quê
+
+- **Índice único no email, não checagem na aplicação:** um `SELECT` antes do
+  `INSERT` tem janela de corrida — duas requisições simultâneas passam as
+  duas pela checagem e gravam as duas. O banco é o único ponto que decide
+  serialmente. A aplicação traduz a violação para `DomainException`; ela não
+  a previne.
+- **`HasMaxLength(254)` no email não é enfeite:** sem ele o EF geraria
+  `nvarchar(max)`, e o SQL Server recusa índice em coluna desse tipo. O
+  número é o limite de um endereço de email pelo padrão da internet.
+- **`Email` normalizado para minúsculas antes de chegar aqui:** o índice
+  único compara texto. Sem a normalização feita em `Email.Criar`,
+  `Fulano@X.com` e `fulano@x.com` seriam duas linhas distintas para o mesmo
+  endereço, e o índice não impediria nada.
+- **`HasMaxLength(255)` no `SenhaHash`:** o formato v3 do `PasswordHasher`
+  produz 84 caracteres em base64 (marcador de formato, algoritmo, iterações,
+  salt de 16 bytes e subchave de 32 bytes). 255 acomoda o atual com folga
+  para uma mudança de versão do formato.
+- **Sem índice no `SenhaHash`:** índice único ali significaria que duas
+  contas nunca poderiam ter o mesmo hash. Com salt aleatório isso quase
+  nunca colidiria, mas se colidisse o banco recusaria o cadastro — e a
+  recusa informaria que aquele hash já existe. Unicidade é regra de negócio
+  do email, não do hash.
+- **`ApplyConfiguration` explícito:** o `IncidentesDbContext` registra cada
+  configuração uma a uma, em vez de `ApplyConfigurationsFromAssembly`.
+  Esquecer a linha do `UsuarioConfiguration` não geraria erro nenhum — a
+  configuração seria ignorada em silêncio e a migration sairia com as
+  convenções padrão do EF, sem índice e com `nvarchar(max)`.
+
+### Pendente
+
+- **`appsettings.Development.json` ausente.** Enquanto não existir um arquivo
+  de configuração local apontando para `localhost,1433`, todo comando
+  `dotnet ef` neste host precisa da senha na linha de comando — que fica no
+  histórico do shell. Recriar o arquivo (e confirmá-lo no `.gitignore`, já
+  que carrega a senha) resolve; o arquivo foi deletado em commit anterior sem
+  registro do motivo.
+- **Repositório traduzindo violação de índice único para `DomainException`.**
+  O índice existe, mas a tradução da `SqlException` (erro 2601/2627) ainda não
+  foi escrita. Item "Email único" da issue permanece desmarcado até lá.
+- **Prova no banco de que duas contas com a mesma senha têm hashes
+  diferentes.** Depende do seed e do `POST /api/usuarios`.
