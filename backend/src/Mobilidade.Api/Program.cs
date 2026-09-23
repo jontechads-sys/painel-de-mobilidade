@@ -37,6 +37,7 @@ builder.Services.AddScoped<RegistrarAtendimento>();
 builder.Services.AddScoped<IDespachadorDeEventos, Despachador>();
 builder.Services.AddScoped<IManipuladorDeEvento<IncidenteAberto>, RegistrarAuditoriaAoAbrirIncidenteGrave>();
 builder.Services.AddScoped<IHasherDeSenha, HasherDeSenhaPbkdf2>();
+builder.Services.AddScoped<IUsuarioRepository, RepositorioUsuariosEfCore>();
 
 builder.Services.AddDbContext<IncidentesDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
