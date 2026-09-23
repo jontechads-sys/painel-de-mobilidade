@@ -1625,14 +1625,17 @@ log  : Mobilidade.Infrastructure.csproj restaurado (em 1,34 seg).
 
 - ~~Mapeamento de `Usuario` no EF Core e migration com índice único no
   email.~~ **Resolvido** na seção "Semana 7: Migration da tabela `Usuarios`".
-- Repositório traduzindo violação de índice único para `DomainException`.
-- Seed do Admin com senha vinda de variável de ambiente, e o grep provando
-  zero ocorrências fora dela.
-- `POST /api/usuarios`.
-- **Prova no banco de que duas contas com a mesma senha têm hashes
-  diferentes.** O teste acima prova em memória; o item da issue pede o
-  `SELECT` na tabela, que depende do mapeamento e da migration. Item
-  permanece desmarcado até lá.
+- ~~Repositório traduzindo violação de índice único para `DomainException`.~~
+  **Resolvido** em `RepositorioUsuariosEfCore.Criar`.
+- ~~Seed do Admin com senha vinda de variável de ambiente.~~ **Resolvido** na
+  seção "Semana 7: Registro de usuário".
+- ~~`POST /api/usuarios`.~~ **Resolvido** na seção "Semana 7: Registro de
+  usuário".
+- ~~**Prova no banco de que duas contas com a mesma senha têm hashes
+  diferentes.**~~ **Resolvido** na seção "Semana 7: Registro de usuário", com
+  o `SELECT` na tabela real.
+- Grep no repositório pela senha do seed, provando zero ocorrências fora da
+  variável de ambiente.
 
   ## Semana 7: Migration da tabela `Usuarios` com índice único no email
 
@@ -1720,8 +1723,11 @@ servidor fora do ar: o cliente não descobriu o endereço do host. O
 `docker-compose.yml`, que só resolve dentro da rede do Compose. O `dotnet ef`
 roda no host, fora dessa rede.
 
-O `appsettings.Development.json`, que apontava para `localhost`, foi deletado
-em commit anterior (ver pendência ao final desta seção).
+O `appsettings.Development.json`, que apontava para `localhost`, não existe no
+repositório: ele consta no `.gitignore` (seção "Ambiente / segredos"), porque
+carrega a senha do banco. Um commit anterior removeu do rastreamento a cópia
+que havia sido commitada por engano, e com ela sumiu a configuração local desta
+máquina.
 
 ### Migration aplicada
 
@@ -1789,14 +1795,192 @@ Done.
 
 ### Pendente
 
-- **`appsettings.Development.json` ausente.** Enquanto não existir um arquivo
-  de configuração local apontando para `localhost,1433`, todo comando
-  `dotnet ef` neste host precisa da senha na linha de comando — que fica no
-  histórico do shell. Recriar o arquivo (e confirmá-lo no `.gitignore`, já
-  que carrega a senha) resolve; o arquivo foi deletado em commit anterior sem
-  registro do motivo.
-- **Repositório traduzindo violação de índice único para `DomainException`.**
-  O índice existe, mas a tradução da `SqlException` (erro 2601/2627) ainda não
-  foi escrita. Item "Email único" da issue permanece desmarcado até lá.
-- **Prova no banco de que duas contas com a mesma senha têm hashes
-  diferentes.** Depende do seed e do `POST /api/usuarios`.
+- ~~**`appsettings.Development.json` ausente.**~~ **Resolvido** na seção
+  seguinte: o arquivo foi recriado localmente com `localhost,1433`. Ele está
+  no `.gitignore` por carregar a senha, então continua fora do repositório —
+  quem clonar precisa criá-lo (pendência de documentação no README).
+- ~~**Repositório traduzindo violação de índice único para
+  `DomainException`.**~~ **Resolvido** em `RepositorioUsuariosEfCore.Criar`,
+  que trata os erros 2601/2627 do SQL Server quando vêm do índice
+  `IX_Usuarios_Email`.
+- ~~**Prova no banco de que duas contas com a mesma senha têm hashes
+  diferentes.**~~ **Resolvido** na seção "Semana 7: Registro de usuário".
+  
+## Semana 7: Registro de usuário — endpoint, seed do Admin e hashes distintos no banco
+
+### O que se quer provar
+
+`POST /api/usuarios` cria um usuário com a senha já em hash, e a resposta não
+carrega o hash. Duas contas registradas com **a mesma senha** têm hashes
+diferentes gravados no banco — a prova de salt pedida pela issue, agora contra
+a tabela real e não só em memória.
+
+O Admin inicial nasce de uma migration que lê a senha de uma variável de
+ambiente; nenhuma senha aparece no código.
+
+Endpoint em `src/Mobilidade.Api/Controllers/UsuarioController.cs`. DTOs em
+`src/Mobilidade.Api/Dtos/`. Migration
+`20260923225151_SeedUsuarioAdmin`.
+
+### Seed do Admin — senha de variável de ambiente
+
+A migration não grava senha nenhuma: ela lê `ADMIN_SENHA_INICIAL` do ambiente,
+calcula o hash pelo mesmo `HasherDeSenhaPbkdf2` que a aplicação usa, e insere o
+resultado. Sem a variável definida, a migration falha em vez de criar um admin
+com senha vazia ou previsível:
+
+```csharp
+var senha = Environment.GetEnvironmentVariable("ADMIN_SENHA_INICIAL");
+
+if (string.IsNullOrWhiteSpace(senha))
+    throw new InvalidOperationException(
+        "A variável de ambiente ADMIN_SENHA_INICIAL não está definida...");
+
+var admin = Usuario.Registrar(
+    Email.Criar("admin@mobilidade.local"), senha, Papel.Admin, new HasherDeSenhaPbkdf2());
+
+migrationBuilder.InsertData(
+    table: "Usuarios",
+    columns: new[] { "Email", "SenhaHash", "Papel" },
+    values: new object[] { admin.Email.Valor, admin.SenhaHash, admin.Papel.Nome });
+```
+
+Definindo a variável e aplicando:
+
+```bash
+set ADMIN_SENHA_INICIAL=<senha definida fora do repositório>
+dotnet ef database update --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api --connection "Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=SuaSenhaAqui;TrustServerCertificate=True"
+```
+
+**SQL executado:**
+```
+Applying migration '20260923225151_SeedUsuarioAdmin'.
+
+INSERT INTO [Usuarios] ([Email], [SenhaHash], [Papel])
+VALUES (N'admin@mobilidade.local', N'AQAAAAIAAYagAAAAEGcZVLeAG0EP...', N'Admin');
+
+INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+VALUES (N'20260923225151_SeedUsuarioAdmin', N'10.0.11');
+Done.
+```
+
+> Hash truncado nesta evidência. O `InsertData` do EF emite o valor literal no
+> SQL, então o hash completo aparece no log de quem aplica a migration — hash
+> não é senha, mas é consequência da escolha de semear pela migration.
+
+### Falha de conexão da API rodando fora do Docker
+
+Primeira chamada ao endpoint respondeu 500. O log da API mostrou o mesmo
+erro 11001 da seção anterior:
+
+```
+fail: Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddleware[1]
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Erro de rede ou
+      específico à instância ao estabelecer conexão com o SQL Server.
+      (provider: Provedor de TCP, error: 0 - Este host não é conhecido.)
+       ---> System.ComponentModel.Win32Exception (11001): Este host não é conhecido.
+         at Mobilidade.Infrastructure.Repositorio.RepositorioUsuariosEfCore.Criar(Usuario usuario)
+         at Mobilidade.Api.Controllers.UsuariosController.Criar(CriarUsuarioRequest request)
+Error Number:11001,State:0,Class:20
+```
+
+`dotnet run` sobe em ambiente Development e lê o `appsettings.json`, que aponta
+para `Server=sqlserver,1433` — nome que só resolve dentro da rede do Compose.
+Resolvido recriando `appsettings.Development.json` com `localhost,1433`, o
+arquivo que a pendência da seção anterior apontava como ausente. Ele já consta
+no `.gitignore` (seção "Ambiente / segredos"), então a senha não entra no
+repositório.
+
+### Dois usuários com a mesma senha
+
+Ambos registrados com `"senha":"mesmasenha123"`:
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"mesmasenha123\",\"papel\":\"Operador\"}"
+```
+
+```
+HTTP/1.1 201 Created
+Content-Type: application/json; charset=utf-8
+Location: http://localhost:5041/api/Usuarios?id=2
+
+{"id":2,"email":"joao@teste.com","papel":"Operador"}
+```
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Content-Type: application/json" -d "{\"email\":\"maria@teste.com\",\"senha\":\"mesmasenha123\",\"papel\":\"Operador\"}"
+```
+
+```
+HTTP/1.1 201 Created
+Content-Type: application/json; charset=utf-8
+Location: http://localhost:5041/api/Usuarios?id=3
+
+{"id":3,"email":"maria@teste.com","papel":"Operador"}
+```
+
+As duas respostas trazem `id`, `email` e `papel`. **Nenhuma traz `senhaHash`** —
+o `UsuarioResponse` não tem esse campo, então ele não pode escapar por
+serialização acidental do agregado.
+
+### Os hashes no banco — mesma senha, hashes diferentes
+
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SuaSenhaAqui" -d MobilidadeDb -C -Q "SELECT Id, Email, SenhaHash, Papel FROM Usuarios"
+```
+
+**Saída (hashes truncados após os 40 primeiros caracteres):**
+```
+Id   Email                     SenhaHash                                   Papel
+---- ------------------------- ------------------------------------------- ---------
+ 1   admin@mobilidade.local    AQAAAAIAAYagAAAAEGcZVLeAG0EPx6OnccaBfguw... Admin
+ 2   joao@teste.com            AQAAAAIAAYagAAAAELQWmkK/uOWhBqrZi1hGFwhu... Operador
+ 3   maria@teste.com           AQAAAAIAAYagAAAAEEjg4njuS/n6PBe1FrPK6WRG... Operador
+
+(3 rows affected)
+```
+
+**A leitura que importa.** Os Ids 2 e 3 foram registrados com a mesma senha.
+Os 17 primeiros caracteres (`AQAAAAIAAYagAAAAE`) são idênticos nos três — é o
+cabeçalho do formato v3 do `PasswordHasher`, que codifica versão, algoritmo e
+número de iterações, e não depende da senha. A partir daí os valores divergem
+completamente: `LQWmkK/uOWhBqrZi1hGFwhu...` contra `Ejg4njuS/n6PBe1FrPK6WRG...`.
+
+Essa divergência é o salt aleatório gerado por chamada. Com SHA256 ou MD5 sem
+salt, as duas linhas teriam hash byte a byte idêntico, e quem lesse a tabela
+saberia que João e Maria usam a mesma senha — sem quebrar hash nenhum.
+
+### Por quê
+
+- **Seed na migration, não no start da aplicação:** é o que a issue pede, e
+  garante que o admin exista assim que o banco está migrado, sem depender de a
+  API subir. O custo é o hash literal no SQL da migration e a exigência da
+  variável de ambiente em toda aplicação — inclusive em CI, que precisaria
+  defini-la.
+- **A migration falha se a variável não existir:** seed pulado em silêncio
+  deixaria o banco sem nenhum admin, e a descoberta só viria na primeira
+  tentativa de login. Falhar cedo torna o problema visível no momento em que
+  ele acontece.
+- **`Down` deleta pelo email, não pelo Id:** o Id é `IDENTITY`, gerado pelo
+  banco, e não se conhece no momento de escrever a migration.
+- **DTO recebe `string Papel`, não o Value Object:** mesmo motivo da
+  decisão #18 — o `Papel` tem construtor privado e o `System.Text.Json` não
+  consegue materializá-lo. A conversão acontece no controller, via
+  `Papel.DeNome`, que rejeita qualquer valor fora de `Admin` e `Operador`
+  com `DomainException` (422).
+- **`UsuarioResponse` em vez de devolver o agregado:** o `IncidentesController`
+  devolve a entidade direto, e por isso a resposta dele carrega campos internos
+  como `eventos`. Para `Usuario` isso exporia `SenhaHash` em toda resposta de
+  criação. Um DTO de saída é o que garante que o hash não sai pela API.
+
+### Pendente
+
+- **`[Authorize(Roles = "Admin")]` no endpoint.** Hoje qualquer um pode chamar
+  `POST /api/usuarios` e escolher o próprio papel — inclusive `"Admin"`. É o
+  mass assignment que a Issue D cobra, e fecha na Issue C. O
+  `Papel.DeNome` impede papel *inválido*, não impede autopromoção.
+- **Grep no repositório pela senha do seed.** Falta executar e colar a saída
+  vazia.
+- **Rotação da senha do `sa`.** A credencial da decisão #12 foi exposta de novo
+  durante o desenvolvimento desta semana e não foi rotacionada. Dívida em
+  aberto.
