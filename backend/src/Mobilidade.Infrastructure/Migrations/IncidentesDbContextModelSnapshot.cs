@@ -122,6 +122,37 @@ namespace Mobilidade.Infrastructure.Migrations
                     b.ToTable("Incidentes");
                 });
 
+            modelBuilder.Entity("Mobilidade.Domain.Entity.Usuario", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("nvarchar(254)");
+
+                    b.Property<string>("Papel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("SenhaHash")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.ToTable("Usuarios", (string)null);
+                });
+
             modelBuilder.Entity("Mobilidade.Domain.Entity.Atendimento", b =>
                 {
                     b.HasOne("Mobilidade.Domain.Entity.Incidente", "Incidente")
