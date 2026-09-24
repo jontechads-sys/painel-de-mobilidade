@@ -2257,3 +2257,213 @@ grep -c "" log-api.txt
 ("Email em formato inválido"), nunca o valor digitado. As mensagens de
 validação do `Usuario.Registrar` seguem a mesma regra: dizem a regra violada,
 não o valor.
+
+## Semana 7: Autorização por papel — 401 contra 403 e negado por padrão
+
+### O que se quer provar
+
+Sem token, o servidor não sabe quem é: **401**. Com token válido mas papel
+insuficiente, ele sabe quem é e sabe que não pode: **403**. São respostas
+diferentes porque as perguntas são diferentes — autenticação é "quem é você",
+autorização é "o que você pode fazer".
+
+Endpoints sem `[Authorize]` explícito ficam **negados por padrão**, não
+abertos: a política de fallback exige usuário autenticado em qualquer rota que
+não tenha declarado o contrário.
+
+Configuração em `src/Mobilidade.Api/Program.cs`. Atributos em
+`IncidentesController.cs` e `UsuarioController.cs`.
+
+### As quatro validações do token
+
+```csharp
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Chave"]!)),
+
+            ValidateIssuer = true,
+            ValidIssuer = builder.Configuration["Jwt:Emissor"],
+
+            ValidateAudience = true,
+            ValidAudience = builder.Configuration["Jwt:Audiencia"],
+
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero,
+
+            RoleClaimType = "role"
+        };
+    });
+```
+
+Cada validação tem um par: o `Validate...` que liga a checagem, e o `Valid...`
+(ou `IssuerSigningKey`) que diz contra o quê comparar. Assinatura, emissor,
+audiência e expiração — as quatro exigidas pela issue.
+
+`ClockSkew = TimeSpan.Zero` remove a tolerância padrão do .NET, que é de 5
+minutos. Sem isso, um token expirado continuaria sendo aceito por mais cinco
+minutos, e o ataque de token expirado da Issue D não provaria nada.
+
+### Negado por padrão
+
+```csharp
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+```
+
+A `FallbackPolicy` vale para toda rota que **não** declara sua própria política.
+Um endpoint novo criado amanhã sem `[Authorize]` nasce fechado, não aberto.
+
+O custo é que login e health também ficariam trancados, e por isso ambos têm
+`[AllowAnonymous]` (no controller) e `.AllowAnonymous()` (no minimal API do
+`/health`). O `/api/incidentes/importar` e o `/api/debug/sql` foram
+deliberadamente **deixados sem** a liberação: passam a exigir token
+autenticado, que é o comportamento correto para um endpoint de escrita e para
+um que expõe estrutura interna.
+
+### Ordem dos middlewares
+
+```csharp
+app.UseExceptionHandler();
+app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+```
+
+`UseAuthentication` antes de `UseAuthorization`, e ambos antes de
+`MapControllers`. O primeiro lê o token e monta a identidade; o segundo decide
+se aquela identidade pode acessar o recurso. Invertidos, o segundo rodaria
+antes de existir identidade e trataria todo mundo como anônimo — 401 em tudo,
+inclusive com token válido.
+
+### A tabela
+
+Cada célula é uma requisição real feita com `curl` contra a API em
+`http://localhost:5041`, com o banco real. Comando usado para capturar apenas
+o status:
+
+```bash
+curl -s -o nul -w "GET /Incidentes -> %{http_code}\n" http://localhost:5041/api/Incidentes -H "Authorization: Bearer %OP%"
+```
+
+| Endpoint | Sem token | Operador | Admin |
+|---|---|---|---|
+| `GET /api/Incidentes` | **401** | **200** | **200** |
+| `GET /api/Incidentes/2` | **401** | **200** | **200** |
+| `GET /api/Incidentes/bairro/1` | **401** | **200** | **200** |
+| `POST /api/Incidentes` | **401** | **403** | **201** |
+| `DELETE /api/Incidentes/999` | **401** | **403** | **404** |
+| `POST /api/Usuarios` | **401** | **403** | **201** |
+
+**Como ler.** A coluna "sem token" é uniformemente 401: sem identidade, o
+servidor não tem o que autorizar. A coluna do Operador separa leitura de
+escrita — 200 nas três consultas, 403 nas três operações de escrita. A coluna
+do Admin passa em tudo.
+
+O **404** do Admin no `DELETE /api/Incidentes/999` é resultado positivo: o
+incidente 999 não existe, e o 404 só pode ter vindo do controller. Ou seja, a
+autorização liberou e o código rodou. Um 403 ali indicaria que o Admin nem
+chegou ao método.
+
+### Operador tentando abrir incidente — requisição e resposta completas
+
+```bash
+curl -i -X POST http://localhost:5041/api/Incidentes -H "Authorization: Bearer <token do Operador>" -H "Content-Type: application/json" -d "{\"dataHora\":\"2026-09-24T10:00:00\",\"tipo\":0,\"severidade\":2,\"bairroId\":1,\"orgaoResponsavel\":\"Teste\",\"situacao\":\"Em analise\"}"
+```
+
+Token usado (assinatura truncada), com `"role":"Operador"` no corpo:
+
+```
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJPcGVyYWRvciIsImV4cCI6MTc5MDI2NDU5MywiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.<truncada>
+```
+
+**Resposta:**
+```
+HTTP/1.1 403 Forbidden
+Content-Length: 0
+Server: Kestrel
+```
+
+Corpo vazio, e isso é deliberado do ASP.NET: o 403 não explica qual papel
+seria necessário. Informar "este endpoint exige Admin" diria ao atacante
+exatamente o que ele precisa obter.
+
+O incidente **não** foi criado — o método `Criar` do controller nunca executou,
+porque o middleware de autorização interrompeu a requisição antes.
+
+### Bug encontrado: `RoleClaimType` sozinho não bastou
+
+Com `RoleClaimType = "role"` configurado e um token de Admin legítimo, o
+`DELETE` respondia **403**:
+
+```bash
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer <token do Admin>"
+```
+
+```
+HTTP/1.1 403 Forbidden
+Content-Length: 0
+```
+
+O token estava correto — corpo com `"sub":"5"`, `"email":"admin@mobilidade.local"`,
+`"role":"Admin"` — e a assinatura era válida, senão a resposta teria sido 401.
+
+**A causa.** O handler do JWT Bearer, por padrão, traduz nomes curtos de claim
+para as URIs longas da Microsoft ao construir a identidade
+(`MapInboundClaims = true` é o padrão). Então o `role` do token virava
+`http://schemas.microsoft.com/ws/2008/06/identity/claims/role` na identidade, e
+o `RoleClaimType = "role"` mandava o `[Authorize]` procurar por uma claim
+`role` que já tinha sido renomeada. Nenhum papel encontrado, logo 403.
+
+A decisão #33 previu que trocar `ClaimTypes.Role` pelo nome curto exigiria
+`RoleClaimType = "role"` — o que não estava previsto é que essa linha sozinha
+não resolve, porque o mapeamento acontece **antes** dela.
+
+**A correção**, uma linha:
+
+```csharp
+options.MapInboundClaims = false;
+```
+
+Com ela, o nome da claim chega como está no token, e o `RoleClaimType` encontra.
+Depois de reiniciar a API, o mesmo `DELETE` respondeu **404** — autorização
+liberada, controller executado, incidente inexistente.
+
+### Por quê
+
+- **403 com corpo vazio, não com mensagem explicativa:** dizer qual papel falta
+  é dar ao atacante o mapa do que precisa obter. O 403 confirma que o token é
+  válido — isso já é informação suficiente para quem tem direito de estar ali.
+- **`FallbackPolicy` em vez de `[Authorize]` no controller inteiro:** um
+  `[Authorize]` na classe protegeria os métodos existentes, mas não um
+  controller novo criado depois. A política de fallback é estrutural: vale para
+  tudo que não declarar o contrário, inclusive minimal APIs.
+- **`[AllowAnonymous]` só no login e no health:** o login não pode exigir token,
+  porque é ele que emite tokens; o health precisa responder a um orquestrador
+  que não tem credencial. Qualquer outro endpoint liberado seria decisão a
+  justificar, não padrão.
+- **Atributos por método, não por controller:** o `IncidentesController` tem
+  leitura e escrita no mesmo arquivo, com papéis diferentes. Um atributo na
+  classe forçaria o menor denominador comum, e as escritas ficariam abertas
+  para Operador.
+- **`ClockSkew = TimeSpan.Zero`:** a tolerância padrão de 5 minutos existe para
+  compensar relógios dessincronizados entre servidores. Aqui há um servidor só,
+  e a tolerância só serviria para tornar a expiração imprecisa — e o ataque de
+  token expirado, inconclusivo.
+
+### Pendente
+
+- **Testes de integração para as 9 células que retornam 401 ou 403.** O projeto
+  não tem infraestrutura de teste de integração HTTP (`WebApplicationFactory`),
+  limitação já registrada na decisão #23. A tabela acima é prova por requisição
+  real, não automatizada.
