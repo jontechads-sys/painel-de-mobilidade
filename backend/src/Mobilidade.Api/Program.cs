@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using Mobilidade.Application.Importacao;
 using Mobilidade.Application.Repositorio;
 using Mobilidade.Infrastructure.Importacao;
@@ -13,6 +16,8 @@ using Mobilidade.Api.Filtros;
 using Mobilidade.Infrastructure.Consultas;
 using Mobilidade.Domain.Interfaces;
 using Mobilidade.Infrastructure.Seguranca;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,6 +47,28 @@ builder.Services.AddScoped<IGeradorDeToken, GeradorDeTokenJwt>();
 
 builder.Services.AddDbContext<IncidentesDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Chave"]!)),
+
+        ValidateIssuer = true,
+        ValidIssuer = builder.Configuration["Jwt:Emissor"],
+
+        ValidateAudience = true,
+        ValidAudience = builder.Configuration["Jwt:Audiencia"],
+
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.Zero,
+
+        RoleClaimType = "role"
+    };
+});
+
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -76,6 +103,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
