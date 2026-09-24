@@ -22,7 +22,7 @@ public class GeradorDeTokenJwt : IGeradorDeToken
         {
         new Claim(JwtRegisteredClaimNames.Sub, usuario.Id.ToString()),
         new Claim(JwtRegisteredClaimNames.Email, usuario.Email.Valor),
-        new Claim(ClaimTypes.Role, usuario.Papel.Nome),
+        new Claim("role", usuario.Papel.Nome),
     };
 
         // 2. A chave e a assinatura
