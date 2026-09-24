@@ -4,6 +4,7 @@ using Mobilidade.Application.Repositorio;
 using Mobilidade.Domain.Entity;
 using Mobilidade.Domain.Interfaces;
 using Mobilidade.Domain.ValueObjects;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Mobilidade.Api.Controllers;
 
@@ -20,6 +21,7 @@ public class UsuariosController : ControllerBase
         _hasher = hasher;
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     public IActionResult Criar(CriarUsuarioRequest request)
     {

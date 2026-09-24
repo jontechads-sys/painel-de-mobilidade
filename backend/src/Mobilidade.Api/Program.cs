@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using Microsoft.AspNetCore.Authorization;
 using Mobilidade.Application.Importacao;
 using Mobilidade.Application.Repositorio;
 using Mobilidade.Infrastructure.Importacao;
@@ -67,7 +68,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     };
 });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
 
 var app = builder.Build();
 
@@ -122,7 +128,7 @@ app.MapGet("/health", async () =>
         app.Logger.LogError(ex, "Falha ao tentar se conectar no banco de dados");
         return Results.StatusCode(503);
     }
-});
+}).AllowAnonymous();
 
 app.MapPost("/api/incidentes/importar", async (
     IIncidenteImportador importador,

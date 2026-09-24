@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Mobilidade.Api.Dtos;
 using Mobilidade.Application.CasosDeUso;
@@ -38,6 +39,7 @@ public class IncidentesController : ControllerBase
         _incidentesPorBairro = incidentesPorBairro;
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     public IActionResult Criar(CriarIncidenteRequest request)
     {
@@ -55,6 +57,7 @@ public class IncidentesController : ControllerBase
         return CreatedAtAction(nameof(BuscarPorId), new { id = incidenteCriado }, incidente);
     }
 
+    [Authorize(Roles = "Admin,Operador")]
     [HttpGet]
     public IActionResult Listar()
     {
@@ -62,6 +65,7 @@ public class IncidentesController : ControllerBase
         return Ok(incidentes);
     }
 
+    [Authorize(Roles = "Admin,Operador")]
     [HttpGet("{id}")]
     public IActionResult BuscarPorId(int id)
     {
@@ -71,6 +75,7 @@ public class IncidentesController : ControllerBase
         return Ok(incidente);
     }
 
+    [Authorize(Roles = "Admin,Operador")]
     [HttpGet("bairro/{bairroId}")]
     public IActionResult PorBairro(int bairroId, [FromQuery] DateTime inicio, [FromQuery] DateTime? fim)
     {
@@ -80,6 +85,7 @@ public class IncidentesController : ControllerBase
         return Ok(incidentes);
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPut("{id}")]
     public IActionResult Atualizar(int id, AtualizarIncidenteRequest request)
     {
@@ -97,6 +103,7 @@ public class IncidentesController : ControllerBase
         return Ok(incidenteAtualizado);
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpDelete("{id}")]
     public IActionResult Remover(int id)
     {
@@ -109,6 +116,7 @@ public class IncidentesController : ControllerBase
         return NoContent();
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost("{id}/encerrar")]
     public IActionResult Encerrar(int id)
     {
@@ -117,6 +125,7 @@ public class IncidentesController : ControllerBase
         return Ok(incidente);
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost("{id}/atendimentos")]
     public IActionResult RegistrarAtendimento(int id, RegistrarAtendimentoRequest request)
     {

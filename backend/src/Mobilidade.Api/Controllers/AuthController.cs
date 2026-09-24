@@ -5,6 +5,7 @@ using Mobilidade.Domain.Entity;
 using Mobilidade.Domain.Interfaces;
 using Mobilidade.Domain.ValueObjects;
 using Mobilidade.Domain.Excecoes;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Mobilidade.Api.Controllers;
 
@@ -22,6 +23,8 @@ public class AuthController : ControllerBase
         _hasher = hasher;
         _tokenJwt = tokenJwt;
     }
+
+    [AllowAnonymous]
     [HttpPost("login")]
     public IActionResult Login(LoginRequest request)
     {
