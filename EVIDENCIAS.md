@@ -2467,3 +2467,149 @@ liberada, controller executado, incidente inexistente.
   não tem infraestrutura de teste de integração HTTP (`WebApplicationFactory`),
   limitação já registrada na decisão #23. A tabela acima é prova por requisição
   real, não automatizada.
+
+  ## Semana 7: Dívida da Semana 6 — `RegistrarIncidenteAberto()` sem guarda
+
+### O que se quer provar
+
+Na sabatina da Semana 6 ficou registrado que `RegistrarIncidenteAberto()` era
+público e sem guarda: chamá-lo antes da persistência gravava um evento
+`IncidenteAberto` com `IncidenteId = 0`, sem erro nenhum. Isso contradizia a
+decisão #4, que fechou o construtor de `Incidente` justamente para tornar a
+invariante estrutural em vez de comportamental.
+
+A guarda escolhida (decisão #36) verifica o `Id` antes de construir o evento.
+O ciclo abaixo prova que o teste detecta a **ausência** da guarda, e não passa
+por acaso.
+
+### A guarda
+
+```csharp
+public void RegistrarIncidenteAberto()
+{
+    if (Id == 0)
+    {
+        throw new DomainException("O incidente precisa ter um ID válido antes de gerar o evento.");
+    }
+
+    var incidenteAberto = new IncidenteAberto(Id, Severidade, Periodo.Inicio);
+    _eventos.Add(incidenteAberto);
+}
+```
+
+A verificação vem **antes** do `new IncidenteAberto(...)`. Um evento com
+`IncidenteId = 0` não chega a existir nem em memória.
+
+### O teste
+
+```csharp
+[Fact]
+public void RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero()
+{
+    var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise");
+
+    Assert.Throws<DomainException>(() => incidente.RegistrarIncidenteAberto());
+}
+```
+
+O cenário não precisa ser forçado: `Incidente.Abrir` cria o agregado em
+memória, sem passar pelo banco, então o `Id` nasce `0` — exatamente a condição
+que a guarda existe para barrar.
+
+### Comando
+
+```bash
+dotnet test --filter IncidenteTests
+```
+
+### 1. Com a guarda ativa — passa
+
+```
+[xUnit.net 00:00:00.96]   Starting:    Mobilidade.Tests
+[xUnit.net 00:00:01.03]   Finished:    Mobilidade.Tests
+  Mobilidade.Tests teste net10.0 êxito (1,9s)
+
+Resumo do teste: total: 12; falhou: 0; bem-sucedido: 12; ignorado: 0; duração: 1,9s
+```
+
+### 2. Com o `if` e o `throw` comentados — falha
+
+Trecho comentado em `Incidente.cs`:
+
+```csharp
+/*if (Id == 0) 
+{
+    throw new DomainException("O incidente precisa ter um ID válido antes de gerar o evento.");
+}*/
+```
+
+Saída:
+
+```
+[xUnit.net 00:00:00.29]     Mobilidade.Tests.IncidenteTests.RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero [FAIL]
+[xUnit.net 00:00:00.29]       Assert.Throws() Failure: No exception was thrown
+[xUnit.net 00:00:00.29]       Expected: typeof(Mobilidade.Domain.Excecoes.DomainException)
+[xUnit.net 00:00:00.29]       Stack Trace:
+[xUnit.net 00:00:00.29]         IncidenteTests.cs(121,0): at Mobilidade.Tests.IncidenteTests.RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero()
+
+Resumo do teste: total: 12; falhou: 1; bem-sucedido: 11; ignorado: 0; duração: 1,2s
+```
+
+**A leitura que importa.** Falhou **um** teste, e foi exatamente o da guarda.
+Os outros 11 continuaram passando — isso confirma que o teste mede essa
+invariante específica, e não um efeito colateral de outra regra.
+
+Sem a guarda, o evento foi criado normalmente com `IncidenteId = 0`: nenhuma
+exceção, nenhum aviso, e um registro de auditoria apontando para um incidente
+que não existe no banco.
+
+### 3. Com a guarda restaurada — passa de novo
+
+```
+[xUnit.net 00:00:00.17]   Starting:    Mobilidade.Tests
+[xUnit.net 00:00:00.26]   Finished:    Mobilidade.Tests
+  Mobilidade.Tests teste net10.0 êxito (1,2s)
+
+Resumo do teste: total: 12; falhou: 0; bem-sucedido: 12; ignorado: 0; duração: 1,2s
+```
+
+> Saídas cortadas: removidos os avisos de build (NU1903, CS8618) e a lista de
+> projetos compilados, que se repetem nas três execuções.
+
+### Tentativa descartada no caminho: comentar a guarda errada
+
+Na primeira tentativa do ciclo, o trecho comentado foi o do `Encerrar()`, não o
+do `RegistrarIncidenteAberto()`. O resultado:
+
+```
+Mobilidade.Tests.IncidenteTests.Encerrar_QuandoIncidenteJaEstiverEncerrado_LancaDomainException [FAIL]
+Mobilidade.Tests.IncidenteTests.Encerrar_QuandoJaEstaEncerrado_NaoAdicionaSegundoEventoNaLista [FAIL]
+
+Resumo do teste: total: 12; falhou: 2; bem-sucedido: 10
+```
+
+Dois testes falharam, e **nenhum deles** era o da guarda em questão — o
+`RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero` continuou passando,
+porque a guarda dele não tinha sido tocada.
+
+Vale registrar porque mostra o que o ciclo de fato verifica: não basta que
+*algum* teste falhe ao comentar *alguma* regra. O que prova a ligação entre
+guarda e teste é **qual** teste falha.
+
+### Por quê
+
+- **A guarda antes da construção do evento, não depois:** verificar o `Id`
+  depois de `new IncidenteAberto(...)` deixaria o evento inválido existir em
+  memória, ainda que por um instante. A decisão #5 rejeitou esse padrão no
+  `Severidade` — valor inválido que existe e depende de alguém corrigir não é
+  invariante.
+- **`DomainException`, não `InvalidOperationException`:** é violação de regra
+  de domínio, e o `DomainExceptionFilter` já traduz para 422 (decisão #19).
+- **O teste não força o `Id` para zero:** ele usa o estado natural de um
+  agregado recém-criado. Um teste que atribuísse `Id = 0` artificialmente
+  provaria menos, porque testaria um cenário construído em vez do cenário real
+  de chamada na ordem errada.
+- **A guarda melhora o modo de falha, não elimina a falha:** um caso de uso que
+  esqueça de chamar `RegistrarIncidenteAberto()` continua compilando. O que
+  mudou é que chamá-lo na hora errada agora falha alto, em vez de gravar um
+  evento apontando para o incidente de Id 0 (decisão #36).

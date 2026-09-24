@@ -490,7 +490,7 @@ compilando sem erro, eventos já referenciados em Incidente.cs.
 ## 14. Tempo de emissão de IncidenteAberto
 
 **O que foi decidido**
-IncidenteAberto não é emetido dentro de `Abrir()` e sim via metodo separado - `RegistrarIncidenteAberto()` (chamado depois de `Salvar()` )
+IncidenteAberto não é eme tido dentro de `Abrir()` e sim via metodo separado - `RegistrarIncidenteAberto()` (chamado depois de `Salvar()` )
 
 **Alternativa considerada**
 Salvar dentro de Abrir (sem passar Id de Incidente).
@@ -1790,3 +1790,120 @@ ambiente.
 
 Migration `20260923225151_SeedUsuarioAdmin`. SQL executado e grep com saída
 vazia no `EVIDENCIAS.md`, seção "Semana 7: Registro de usuário".
+
+## 36. `RegistrarIncidenteAberto()` recusa evento com `Id` zero
+
+**Contexto: a dívida que esta decisão paga**
+
+A decisão #14 registrou que `IncidenteAberto` não pode ser emitido dentro de
+`Abrir()`, porque o `Id` só existe depois que o banco o gera (`IDENTITY`). A
+solução foi um método separado, `RegistrarIncidenteAberto()`, chamado pelo caso
+de uso **depois** de `_repositorio.Criar(incidente)`.
+
+O custo foi anotado na própria #14: "um caso de uso novo precisa lembrar de
+chamar o método". O que a sabatina da Semana 6 apontou é que o problema é pior
+do que isso — o método é público e não tinha guarda nenhuma. Chamá-lo **antes**
+da persistência compilava, rodava, e gravava um evento com `IncidenteId = 0`.
+
+Isso contradiz a decisão #4, que estabeleceu o construtor privado justamente
+para que a invariante fosse **estrutural, não comportamental**. Um método
+público sem guarda devolve a garantia para a disciplina de quem chama.
+
+**O que foi decidido**
+
+`RegistrarIncidenteAberto()` verifica o `Id` antes de construir o evento:
+
+```csharp
+public void RegistrarIncidenteAberto()
+{
+    if (Id == 0)
+    {
+        throw new DomainException("O incidente precisa ter um ID válido antes de gerar o evento.");
+    }
+
+    var incidenteAberto = new IncidenteAberto(Id, Severidade, Periodo.Inicio);
+    _eventos.Add(incidenteAberto);
+}
+```
+
+A guarda vem **antes** da construção do evento, não depois: um `IncidenteAberto`
+com `IncidenteId = 0` nunca chega a existir, nem em memória.
+
+**Alternativa considerada**
+
+A segunda saída oferecida pela issue: o evento nasceria em `Abrir()` sem `Id`, e
+o despachador preencheria o campo antes de publicar.
+
+**Por que foi rejeitada**
+
+Ela resolve o sintoma e cria dois problemas maiores.
+
+O primeiro é que o evento passaria a existir num estado inválido por desenho —
+um `IncidenteAberto` com `IncidenteId = 0` seria normal, e a correção viria
+depois, em outro componente. A decisão #5 rejeitou exatamente esse padrão no
+`Severidade`: valor inválido que existe e depende de alguém corrigir é o oposto
+de invariante estrutural.
+
+O segundo é que o `IncidenteAberto` é um `record` imutável. Preencher o `Id`
+depois exigiria torná-lo mutável, ou reconstruí-lo no despachador — e
+reconstruir significa o despachador montando um evento de domínio, que é
+precisamente o que a decisão #14 rejeitou ao descartar a alternativa do handler
+montar o evento sozinho.
+
+Há ainda um custo menor: a responsabilidade do despachador deixaria de ser
+"entregar eventos a quem escuta" e passaria a incluir "consertar eventos antes
+de entregar". Um despachador que conhece campos específicos de um evento
+específico deixa de ser genérico.
+
+**O que se perde com a escolha**
+
+A guarda protege contra o uso errado, mas não o torna impossível. Um caso de uso
+novo que esqueça de chamar `RegistrarIncidenteAberto()` continua compilando e
+rodando — só que agora, se chamar na hora errada, falha alto em vez de gravar
+lixo. É uma melhoria do modo de falha, não a eliminação da falha.
+
+A garantia estrutural completa exigiria o que a decisão #14 já descartou por
+custo: `Guid` gerado no domínio em vez de `int` gerado pelo banco. Com isso o
+evento poderia nascer dentro de `Abrir()`, com Id válido, e o método separado
+deixaria de existir.
+
+**O que mudaria de ideia**
+
+Migrar a chave de `int` (`IDENTITY`) para `Guid` gerado no domínio. Aí esta
+decisão e a #14 se tornam desnecessárias juntas: `Abrir()` já teria o `Id` no
+momento da criação, emitiria o evento diretamente, e não haveria método público
+extra nem guarda para proteger.
+
+O custo dessa migração — o motivo de ela não caber nesta semana — é amplo e vale
+mapear, porque é o que separa a decisão consciente do "não fiz":
+
+- A PK de `Incidente` muda de `int` para `Guid`, e com ela a FK em `Atendimento`
+  e a FK em `Auditoria` — três colunas, numa migration que altera tipo de chave
+  em tabelas que já têm dados (`int` para `uniqueidentifier` não é conversão
+  implícita; exige recriar as FKs).
+- Os DTOs de leitura e de escrita que hoje expõem ou recebem `int Id` passam a
+  `Guid`, e todo cliente da API muda junto.
+- Os testes que constroem incidentes com `Id` numérico esperado (o próprio
+  `RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero` depende de `Id`
+  nascer `0`) precisam ser reescritos — com `Guid`, "sem Id" deixa de ser `0` e
+  passa a ser `Guid.Empty`, então a própria guarda muda de forma.
+- O `IDENTITY` do banco deixa de gerar a chave; a geração passa para o domínio,
+  o que muda o comportamento de inserção e a estratégia do EF Core para a PK.
+
+É uma mudança de fundação, não um ajuste. Levada à sabatina como pergunta
+aberta: resolver a raiz agora valia esse custo, ou a guarda desta decisão é a
+priorização certa até que outra necessidade justifique o `Guid`?
+
+**Evidência**
+
+`Incidente.RegistrarIncidenteAberto()`. Teste
+`RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero` em
+`IncidenteTests.cs`, com o ciclo comentar/falhar/descomentar registrado no
+`EVIDENCIAS.md`:
+
+1. Guarda ativa: `total: 12; falhou: 0`.
+2. `if` e `throw` comentados: `total: 12; falhou: 1` — **apenas** o teste da
+   guarda falha, com `Assert.Throws() Failure: No exception was thrown`. Os
+   outros 11 continuam passando, o que confirma que o teste mede essa guarda e
+   não outra coisa.
+3. Guarda restaurada: `total: 12; falhou: 0`.
