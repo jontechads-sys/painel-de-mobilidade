@@ -2210,3 +2210,50 @@ pendência.
   não aparece — item da Issue D.
 - **Rate limiting no login.** Nada limita tentativas hoje; cem requisições
   seguidas com senha errada são todas processadas. Item da Issue D.
+
+  ### Grep no log após login com senha errada — zero ocorrências
+
+O projeto não tem logging em arquivo configurado; o log vai para o console.
+Para poder grepá-lo, a API foi subida com a saída redirecionada:
+
+```bash
+dotnet run --project src/Mobilidade.Api > log-api.txt 2>&1
+```
+
+Login com senha deliberadamente distinta, para que qualquer ocorrência no log
+fosse inequívoca:
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"SenhaErradaParaTesteDeLog123\"}"
+```
+
+```
+HTTP/1.1 401 Unauthorized
+{"mensagem":"Email ou senha inválidos."}
+```
+
+Grep pela senha digitada:
+
+```bash
+grep -n "SenhaErradaParaTesteDeLog123" log-api.txt
+```
+
+**Saída:** vazia.
+
+Confirmação de que o arquivo não está vazio — sem isso, o grep vazio não
+provaria nada:
+
+```bash
+grep -c "" log-api.txt
+```
+
+```
+21
+```
+
+**Por que a senha não aparece.** Ela entra no `LoginRequest`, é passada a
+`usuario.SenhaConfere` e descartada. Não há `_logger` no `AuthController`, e a
+`DomainException` capturada no `try/catch` carrega a mensagem do domínio
+("Email em formato inválido"), nunca o valor digitado. As mensagens de
+validação do `Usuario.Registrar` seguem a mesma regra: dizem a regra violada,
+não o valor.
