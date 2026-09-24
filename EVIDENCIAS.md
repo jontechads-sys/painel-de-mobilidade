@@ -2613,3 +2613,567 @@ guarda e teste é **qual** teste falha.
   esqueça de chamar `RegistrarIncidenteAberto()` continua compilando. O que
   mudou é que chamá-lo na hora errada agora falha alto, em vez de gravar um
   evento apontando para o incidente de Id 0 (decisão #36).
+
+  ## Semana 7 — Ataques: Issue D
+
+Cada ataque segue quatro partes: o que o atacante tenta, a requisição real, a
+resposta real, e o que impediu.
+
+Todos os tokens têm a assinatura truncada ou são inválidos por construção —
+nenhum token legítimo e válido aparece inteiro nesta seção.
+
+---
+
+### Ataque 1 — Alterar a claim de papel no token
+
+**O que o atacante tenta**
+
+Um Operador autenticado quer poderes de Admin. Ele já tem um token válido, faz
+login normalmente, e a claim `role` do próprio token diz `Operador`. A ideia é
+editar essa claim para `Admin` e reenviar — o corpo do JWT é base64, legível e
+editável por qualquer um, sem chave nenhuma.
+
+**A manipulação**
+
+O token do Operador foi colado no jwt.io e a claim `"role": "Operador"` foi
+trocada por `"role": "Admin"` no payload. O site reescreve o token com o corpo
+novo, mas recalcula a assinatura com a chave que está no próprio site — que não
+é a chave secreta do servidor.
+
+Corpo do token adulterado, decodificado:
+
+```json
+{
+  "sub": "2",
+  "email": "joao@teste.com",
+  "role": "Admin",
+  "exp": 1790269859,
+  "iss": "painel-mobilidade",
+  "aud": "painel-mobilidade"
+}
+```
+
+`role` agora diz `Admin`. Todo o resto — `sub`, `email`, `exp` — é do Operador.
+
+**A requisição**
+
+Token adulterado enviado a um endpoint que exige Admin:
+
+```bash
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJBZG1pbiIsImV4cCI6MTc5MDI2OTg1OSwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.<assinatura forjada>"
+```
+
+**A resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Length: 0
+Server: Kestrel
+WWW-Authenticate: Bearer error="invalid_token", error_description="The signature key was not found"
+```
+
+**O que impediu**
+
+A assinatura. Um JWT tem três partes: cabeçalho, corpo e assinatura, separadas
+por ponto. A assinatura é o HMAC-SHA256 de `cabeçalho.corpo`, calculado com uma
+chave que só o servidor conhece.
+
+Quando o atacante mudou o corpo, o `cabeçalho.corpo` mudou junto. A assinatura
+que acompanhava o token original foi calculada sobre o corpo antigo (`Operador`)
+e não vale mais para o corpo novo (`Admin`). O jwt.io até gerou uma assinatura
+nova, mas com a chave errada — ele não tem a do servidor.
+
+Na chegada, o servidor recalcula o HMAC do corpo recebido com a **sua** chave e
+compara com a assinatura recebida. Não bate. A requisição é rejeitada com 401 na
+validação da assinatura, **antes** de qualquer checagem de papel. O
+`error_description="The signature key was not found"` é exatamente esse ponto:
+a assinatura não corresponde a nenhuma chave que o servidor aceite.
+
+Essa é a propriedade do HMAC provada na Parte 2 (dois logins, assinaturas
+completamente diferentes): mudar um único caractere da entrada produz uma
+assinatura totalmente diferente, e forjá-la exige a chave. Sem a chave, editar o
+corpo é inútil.
+
+**O contraste que fecha a prova**
+
+A mesma requisição, ao mesmo endpoint, com o token **original** do Operador —
+sem adulteração, assinatura legítima:
+
+```bash
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer eyJ...role Operador...NhPS30yaPAtQDXTr5K_eana-9TyUOQbPovuadTvgST4"
+```
+
+```
+HTTP/1.1 403 Forbidden
+Content-Length: 0
+Server: Kestrel
+```
+
+**401 contra 403, e a diferença é tudo:**
+
+| Token | `role` | Assinatura | Resposta | Barrado por |
+|---|---|---|---|---|
+| adulterado | `Admin` | inválida | **401** | validação da assinatura |
+| original | `Operador` | válida | **403** | autorização (papel) |
+
+O token adulterado nunca chega a ser avaliado quanto ao papel — morre na
+assinatura. O token original passa a assinatura (é legítimo) e só então é barrado
+pelo papel. Se o ataque tivesse dado 403, significaria que o servidor aceitou a
+assinatura forjada e só reprovou o papel — falha grave. Deu 401: a fronteira está
+no lugar certo.
+
+### Ataque 2 — SQL injection no login
+
+**O que o atacante tenta**
+
+Entrar sem senha, ou danificar o banco, mandando SQL no campo de email em vez
+de um endereço. Se a aplicação montasse a query concatenando o email digitado
+direto no texto SQL — algo como `... WHERE Email = '` + email + `'` — o
+atacante poderia fechar a aspa e injetar sua própria condição.
+
+Dois payloads clássicos: um que tenta virar uma condição sempre verdadeira para
+burlar a autenticação, e um que tenta destruir a tabela.
+
+**Requisição 1 — condição sempre verdadeira**
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"admin@mobilidade.local' OR '1'='1\",\"senha\":\"qualquercoisa\"}"
+```
+
+**Resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"mensagem":"Email ou senha inválidos."}
+```
+
+**Requisição 2 — tentativa de dropar a tabela**
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"x'; DROP TABLE Usuarios; --\",\"senha\":\"qualquercoisa\"}"
+```
+
+**Resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"mensagem":"Email ou senha inválidos."}
+```
+
+**A tabela sobreviveu**
+
+Se o `DROP TABLE` tivesse executado, esta consulta falharia com "Invalid object
+name 'Usuarios'". Rodada logo após os dois ataques:
+
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "<senha do sa>" -d MobilidadeDb -C -Q "SELECT Id, Email, Papel FROM Usuarios"
+```
+
+```
+Id   Email                      Papel
+---- -------------------------- --------
+ 2   joao@teste.com             Operador
+ 3   maria@teste.com            Operador
+ 5   admin@mobilidade.local     Admin
+ 6   criadopeloadmin@teste.com  Operador
+
+(4 rows affected)
+```
+
+Os quatro usuários continuam lá. Nenhum comando do payload tocou no banco.
+
+**O que impediu — duas barreiras, e a primeira já basta**
+
+**Primeira barreira: o `Email` como Value Object.** Antes de qualquer consulta,
+o login chama `Email.Criar(request.Email)`. Esse método valida o formato com
+`MailAddress.TryCreate` e exige que o valor normalizado seja idêntico a um
+endereço válido. `admin@mobilidade.local' OR '1'='1` e `x'; DROP TABLE Usuarios; --`
+têm aspas, espaços e ponto-e-vírgula — não são emails válidos, então
+`Email.Criar` lança `DomainException`, que o `try/catch` do login (decisão #32)
+transforma em 401. A consulta ao banco **nunca acontece**: o payload é rejeitado
+na fronteira do domínio.
+
+**Segunda barreira: consulta parametrizada.** Mesmo que a validação de email não
+existisse, o `BuscarPorEmail` do repositório usa LINQ:
+
+```csharp
+_contexto.Usuarios.FirstOrDefault(u => u.Email == email);
+```
+
+O EF Core traduz isso para uma query com **parâmetro**, não concatenação:
+
+```sql
+SELECT ... FROM [Usuarios] AS [u] WHERE [u].[Email] = @__email_0
+```
+
+O valor digitado, inteiro, vai no `@__email_0` como um literal de texto. O banco
+compara a coluna `Email` com a string `x'; DROP TABLE Usuarios; --` procurando
+um registro cujo email seja **exatamente** esse texto — aspas e tudo. Não
+existe, retorna nada, e o login responde 401. O SQL do payload é dado, nunca
+comando.
+
+**Por que duas barreiras e não uma**
+
+A validação de email barra esses payloads hoje, mas é a defesa da porta errada
+para este ataque: ela existe para garantir emails válidos, não para conter
+injection. Se amanhã um campo diferente — que aceita texto livre, como uma
+descrição ou um filtro de busca — chegasse ao banco, a validação de email não
+protegeria nada. A parametrização do EF Core é a defesa estrutural: vale para
+todo campo que vira query, sem depender de cada um ter sua própria validação de
+formato. As duas juntas são defesa em profundidade; a segunda é a que
+generaliza.
+
+**Dívida relacionada**
+
+O sistema não tem consulta que monte SQL por concatenação de string em lugar
+nenhum — tudo passa por LINQ ou por parâmetro (as migrations que usam
+`migrationBuilder.Sql` com valores dinâmicos, como o seed do Admin, usam
+`InsertData` parametrizado, decisão #35). Não há SQL cru concatenado a auditar.
+
+### Ataque 3 — Mass assignment: autopromoção a Admin no cadastro
+
+**O que o atacante tenta**
+
+O endpoint `POST /api/usuarios` aceita um campo `papel` no corpo. O ataque de
+mass assignment é usar esse campo para se dar um papel que não deveria — criar
+uma conta já como `Admin`, sem que ninguém autorize. É o furo que o
+`UsuarioController` carregava de propósito até esta issue: o comentário no
+código dizia "qualquer um pode chamá-lo e escolher o próprio papel".
+
+O ataque tem duas frentes: quem pode **chamar** o endpoint, e quais papéis pode
+**atribuir**. As duas precisam estar fechadas.
+
+**Frente 1 — quem pode chamar**
+
+Sem token, tentando criar um Admin:
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Content-Type: application/json" -d "{\"email\":\"invasor@teste.com\",\"senha\":\"senha12345\",\"papel\":\"Admin\"}"
+```
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Length: 0
+WWW-Authenticate: Bearer
+```
+
+Com token de **Operador**, a autopromoção clássica — um usuário de papel baixo
+tentando criar uma conta de papel alto:
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Authorization: Bearer <token do Operador>" -H "Content-Type: application/json" -d "{\"email\":\"invasor@teste.com\",\"senha\":\"senha12345\",\"papel\":\"Admin\"}"
+```
+
+```
+HTTP/1.1 403 Forbidden
+Content-Length: 0
+```
+
+O `[Authorize(Roles = "Admin")]` no endpoint barra os dois: sem identidade, 401;
+com identidade de Operador, 403. O método `Criar` do controller nunca executa,
+então nenhuma conta é criada. Um Operador **não pode criar usuário nenhum** —
+nem Admin, nem outro Operador.
+
+**Frente 2 — quais papéis podem ser atribuídos**
+
+Mesmo um Admin legítimo, autorizado a criar contas, não pode inventar um papel
+fora da lista fechada. Com token de **Admin**, tentando criar um `SuperAdmin`:
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Authorization: Bearer <token do Admin>" -H "Content-Type: application/json" -d "{\"email\":\"teste-papel@teste.com\",\"senha\":\"senha12345\",\"papel\":\"SuperAdmin\"}"
+```
+
+```
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/problem+json; charset=utf-8
+
+{"title":"Regra de negócio violada","status":422,"detail":"Usuario Inválido"}
+```
+
+O `[Authorize]` deixa passar (é um Admin), mas na conversão do papel o
+controller chama `Papel.DeNome("SuperAdmin")`. `Papel` é um value object de lista
+fechada — só existem as instâncias `Admin` e `Operador`, com construtor privado.
+Qualquer nome fora disso lança `DomainException`, que o `DomainExceptionFilter`
+traduz para 422. Não há como materializar um papel que o domínio não declarou.
+
+**As três respostas, lado a lado**
+
+| Quem chama | Papel pedido | Resposta | Barrado por |
+|---|---|---|---|
+| sem token | `Admin` | **401** | autenticação (`FallbackPolicy`) |
+| Operador | `Admin` | **403** | autorização (`[Authorize(Roles="Admin")]`) |
+| Admin | `SuperAdmin` | **422** | domínio (`Papel.DeNome`) |
+
+**O que impediu — duas defesas independentes**
+
+O mass assignment precisa das duas frentes fechadas, e elas são independentes:
+
+1. **`[Authorize(Roles = "Admin")]` decide quem pode chamar.** Fecha a
+   autopromoção: nenhum Operador cria contas, então nenhum Operador se eleva a
+   Admin. Esta é a defesa que a Issue C acrescentou — antes dela, o endpoint
+   estava aberto e o ataque funcionava.
+
+2. **`Papel` como value object decide o que pode ser atribuído.** Fecha a
+   invenção de papéis: nem um Admin cria um `SuperAdmin` ou um `Root`, porque
+   esses valores não existem no domínio. Esta defesa já existia desde a Parte 1
+   (decisão sobre `Papel` como lista fechada), e é o que impede escalonamento
+   *dentro* do conjunto de quem já pode criar contas.
+
+Sem a defesa 1, qualquer um se promovia. Sem a defesa 2, um Admin comprometido
+poderia criar papéis arbitrários que o resto do sistema não saberia interpretar.
+Juntas, o único papel que entra no banco é um dos dois que o domínio reconhece,
+atribuído por alguém que o `[Authorize]` deixou passar.
+
+**Observação sobre a mensagem do 422**
+
+O `detail` retornado é `"Usuario Inválido"`, genérico. A mensagem que o
+`Papel.DeNome` lança no código é mais específica (`"Papel inválido:
+'SuperAdmin'. Valores aceitos: Admin, Operador."`). Em algum ponto do caminho a
+mensagem específica está sendo achatada para a genérica — não afeta a proteção,
+mas é uma imprecisão a investigar: o cliente recebe menos informação do que o
+domínio produziu. Registrado como ponto menor.
+
+### Ataque 4 — Token forjado, assinado com outra chave
+
+**O que o atacante tenta**
+
+Diferente do Ataque 1, onde o atacante *editou* um token existente, aqui ele
+monta um do zero. Ele conhece o formato: sabe que o servidor quer `role: Admin`,
+o emissor `painel-mobilidade`, a audiência `painel-mobilidade`. Preenche tudo
+certo, e assina com uma chave secreta que ele mesmo inventou — porque a chave do
+servidor ele não tem.
+
+A pergunta que este ataque responde: **o que protege o token é o conteúdo certo,
+ou a chave certa?**
+
+**A forja**
+
+Token montado no jwt.io, com um payload de Admin impecável e `exp` em um futuro
+distante (`9999999999` = ano 2286), para que não haja como o token ser rejeitado
+por expiração — se cair, é só pela assinatura:
+
+```json
+{
+  "sub": "999",
+  "email": "atacante@teste.com",
+  "role": "Admin",
+  "exp": 9999999999,
+  "iss": "painel-mobilidade",
+  "aud": "painel-mobilidade"
+}
+```
+
+Assinado com a chave `chave-que-o-atacante-inventou` — qualquer valor que **não**
+seja a chave real do servidor.
+
+**A requisição**
+
+```bash
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5OTkiLCJlbWFpbCI6ImF0YWNhbnRlQHRlc3RlLmNvbSIsInJvbGUiOiJBZG1pbiIsImV4cCI6OTk5OTk5OTk5OSwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.<assinatura com chave forjada>"
+```
+
+**A resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Length: 0
+WWW-Authenticate: Bearer error="invalid_token", error_description="The signature key was not found"
+```
+
+**O que impediu**
+
+`ValidateIssuerSigningKey = true`. Na validação, o servidor pega o cabeçalho e o
+corpo do token recebido, recalcula o HMAC-SHA256 com a **sua** chave — a que está
+em `Jwt__Chave`, na variável de ambiente — e compara com a assinatura que veio no
+token. O atacante calculou a dele com outra chave, então os dois HMACs não
+batem. Rejeitado.
+
+**Por que este ataque é diferente do Ataque 1**
+
+No Ataque 1, o token começou legítimo e foi adulterado — mostrava que **mexer**
+no conteúdo quebra a assinatura. Aqui o token nasceu falso, com conteúdo
+perfeito desde o início — mostra que **conteúdo perfeito não vale nada sem a
+chave**. São os dois lados da mesma moeda:
+
+- O corpo do JWT é público e forjável. Qualquer um escreve `role: Admin`.
+- A assinatura é o que prova que o token foi emitido por quem tem a chave.
+- Sem a chave, não há como produzir uma assinatura que o servidor aceite —
+  nem editando um token real, nem montando um do zero.
+
+É por isso que a decisão #30 (chave em variável de ambiente, nunca no código,
+nunca no repositório) é a peça central de toda a autenticação. Se a chave
+vazasse, **este ataque funcionaria**: o atacante montaria exatamente este token,
+assinaria com a chave vazada, e o servidor o aceitaria como um Admin legítimo. A
+segurança inteira do JWT se reduz ao segredo dessa única chave.
+
+**A conexão com a expiração**
+
+O `exp: 9999999999` deste ataque também prova, de passagem, que a validação não
+para na assinatura por acaso: se a assinatura tivesse batido, o servidor
+seguiria para checar emissor, audiência e expiração. Como o `exp` é válido por
+mais 260 anos, nenhuma dessas checagens barraria o token. A única coisa entre o
+atacante e o acesso de Admin era a chave — e foi ela que barrou.
+
+### Ataque 5 — Token expirado
+
+**O que o atacante tenta**
+
+Reusar um token que já foi legítimo, mas cuja validade passou. É o cenário de um
+token roubado: o atacante captura um token válido (de um log, de um proxy, de um
+dispositivo comprometido) e tenta usá-lo depois. Se o servidor não checasse a
+expiração, um token vazado valeria para sempre.
+
+**Como o token expirado foi produzido**
+
+Diferente dos ataques de assinatura, aqui o token precisa ser **legítimo** —
+assinatura verdadeira, emitida pelo próprio servidor — e apenas vencido. Um token
+editado no jwt.io não serviria: a assinatura quebraria e o servidor barraria por
+assinatura antes de olhar a validade.
+
+Para produzir a condição de forma controlada, a expiração do gerador foi
+reduzida de `AddMinutes(30)` para `AddSeconds(10)` temporariamente, a API foi
+reiniciada, um login normal gerou o token, e a requisição foi feita ~15 segundos
+depois — com o token já vencido, mas com assinatura autêntica. O gerador foi
+revertido para `AddMinutes(30)` em seguida.
+
+**A requisição**
+
+```bash
+curl -i http://localhost:5041/api/Incidentes -H "Authorization: Bearer <token legítimo, já vencido>"
+```
+
+O token, decodificado, tinha `exp: 1790276023` — um instante ~10 segundos após a
+emissão.
+
+**A resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Length: 0
+WWW-Authenticate: Bearer error="invalid_token", error_description="The token expired at '09/24/2026 18:53:43'"
+```
+
+**O que impediu**
+
+`ValidateLifetime = true`, com `ClockSkew = TimeSpan.Zero`. A assinatura era
+válida — o token fora emitido pelo servidor —, então a validação passou da
+assinatura, do emissor e da audiência. Parou na expiração: o `exp` já era
+passado, e o token foi rejeitado.
+
+**A mensagem de erro é a prova mais precisa desta seção**
+
+Repare que o `error_description` é **diferente** de todos os ataques anteriores:
+
+| Ataque | `error_description` | Onde parou |
+|---|---|---|
+| Claim alterada | `The signature key was not found` | assinatura |
+| Token forjado | `The signature key was not found` | assinatura |
+| **Token expirado** | `The token expired at '09/24/2026 18:53:43'` | **expiração** |
+
+Os ataques de assinatura morrem na primeira validação e nunca chegam a olhar o
+tempo. Este passou a assinatura (o token é autêntico) e morreu na validação de
+tempo — e a mensagem nomeia o instante exato da expiração. É a diferença entre
+"não sei quem emitiu isso" e "sei quem emitiu, mas já venceu".
+
+**O papel do `ClockSkew = TimeSpan.Zero`**
+
+Por padrão, o .NET aceita um token até 5 minutos **depois** do `exp`, para
+tolerar relógios dessincronizados entre servidores distintos. Com um único
+servidor, essa tolerância só serviria para tornar a expiração imprecisa: um
+token de 30 minutos valeria, na prática, 35. Com `ClockSkew = TimeSpan.Zero`, o
+token expirou às 18:53:43 e foi rejeitado poucos segundos depois — a janela de
+validade é exatamente a que a decisão #31 define, sem folga.
+
+Sem essa linha, este ataque teria um resultado ambíguo: um token vencido há
+menos de 5 minutos ainda passaria, e a evidência não provaria que a expiração é
+respeitada ao segundo.
+
+**A dívida que este ataque expõe**
+
+A expiração limita o dano de um token roubado a, no máximo, 30 minutos — mas não
+o elimina. Durante esses 30 minutos, o token vale, e **não há como revogá-lo**:
+um JWT sem estado é validado só pela assinatura, sem consulta a nenhuma lista de
+tokens cancelados. A mitigação completa exige refresh tokens curtos com uma
+lista de revogação no banco — registrado como evolução na decisão #31, fora do
+escopo desta semana.
+
+### Ataque 6 — Força bruta no login (vulnerabilidade em aberto)
+
+**O que o atacante tenta**
+
+Adivinhar a senha por tentativa e erro. Com uma lista de senhas comuns, ou de
+senhas vazadas de outros serviços, o atacante manda milhares de logins contra um
+email conhecido até uma acertar. O único obstáculo natural seria o servidor
+parar de aceitar tentativas depois de algumas falhas.
+
+**Diferente dos outros cinco ataques**
+
+Os anteriores provaram defesas que **existem**. Este prova uma defesa que
+**falta**. É registrado como vulnerabilidade em aberto, não como ataque
+frustrado — e é deliberado registrá-lo assim, porque reconhecer o furo com
+honestidade vale mais do que fingir que não existe.
+
+**A requisição**
+
+Vinte tentativas de login em sequência, cada uma com uma senha errada diferente:
+
+```bash
+for /L %i in (1,1,20) do @curl -s -o nul -w "tentativa %i -> %{http_code}\n" -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"errada%i\"}"
+```
+
+**A resposta**
+
+```
+tentativa 1 -> 401
+tentativa 2 -> 401
+tentativa 3 -> 401
+...
+tentativa 19 -> 401
+tentativa 20 -> 401
+```
+
+Vinte tentativas, vinte 401. **Nenhum 429 (Too Many Requests)**, nenhum bloqueio,
+nenhum atraso progressivo. O servidor processou todas as tentativas com o mesmo
+custo e a mesma disposição da primeira.
+
+**O que impediu — nada, e é esse o ponto**
+
+Não há rate limiting, bloqueio de conta após N falhas, nem backoff. Um atacante
+pode manter esse laço rodando indefinidamente. A única barreira real hoje é a
+força do algoritmo de hash: o PBKDF2 com 100.000 iterações (decisão #29) torna
+cada verificação cara o suficiente para desacelerar um ataque — mas isso protege
+o hash no banco em caso de vazamento, **não** o endpoint de login contra
+tentativas online. As duas coisas são defesas diferentes para ameaças
+diferentes, e a segunda está ausente.
+
+**A dívida, e por que é aceitável por ora**
+
+Rate limiting no login é a mitigação que falta, e está registrado como pendência
+(decisão #31 menciona a ausência; esta evidência a prova). Não foi implementado
+nesta semana por escopo — a issue pede que os ataques sejam *demonstrados*, e a
+força bruta é o único cuja demonstração é justamente mostrar que a defesa não
+existe ainda.
+
+O que reduz o risco imediato, sem eliminá-lo:
+
+- **PBKDF2 caro** (decisão #29): cada tentativa custa ~100.000 iterações de
+  hash, então um ataque online é lento — na casa de dezenas de tentativas por
+  segundo, não milhares. Não impede, mas encarece.
+- **401 genérico** (decisão #32): o atacante não sabe se errou o email ou a
+  senha, então não consegue nem confirmar que a conta existe antes de tentar.
+
+**O caminho da correção**, para quando entrar em escopo:
+
+1. Rate limiting por IP no endpoint de login (o ASP.NET Core tem
+   `AddRateLimiter` nativo desde o .NET 7), respondendo 429 após N tentativas
+   numa janela de tempo.
+2. Bloqueio temporário da conta após um número de falhas consecutivas,
+   independente de IP — para conter ataque distribuído de várias origens.
+3. Idealmente, um segundo fator para contas de papel Admin.
+
+O item 1 sozinho já elimina a força bruta ingênua demonstrada acima, e é de
+baixo custo. É a próxima peça de segurança a construir.
