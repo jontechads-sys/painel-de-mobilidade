@@ -1979,8 +1979,6 @@ saberia que João e Maria usam a mesma senha — sem quebrar hash nenhum.
   `POST /api/usuarios` e escolher o próprio papel — inclusive `"Admin"`. É o
   mass assignment que a Issue D cobra, e fecha na Issue C. O
   `Papel.DeNome` impede papel *inválido*, não impede autopromoção.
-- **Grep no repositório pela senha do seed.** Falta executar e colar a saída
-  vazia.
 - **Rotação da senha do `sa`.** A credencial da decisão #12 foi exposta de novo
   durante o desenvolvimento desta semana e não foi rotacionada. Dívida em
   aberto.
@@ -1995,3 +1993,220 @@ grep -rn "<senha do seed>" --include="*.cs" --include="*.json" --include="*.md" 
 configuração, documentação ou arquivos do compose. Ela existe apenas na
 variável de ambiente `ADMIN_SENHA_INICIAL`, lida em tempo de execução pela
 migration `SeedUsuarioAdmin`, e o hash gravado no banco não permite recuperá-la.
+
+## Semana 7: Login e JWT — token assinado e 401 indistinguível
+
+### O que se quer provar
+
+`POST /api/auth/login` devolve 200 com um token assinado quando a senha
+confere. Email inexistente e senha errada devolvem **o mesmo 401, com o mesmo
+corpo** — a resposta não diz qual dos dois falhou, o que impede enumerar quais
+emails existem no sistema.
+
+O token carrega as seis claims mínimas (`sub`, `email`, `role`, `exp`, `iss`,
+`aud`), é assinado com HS256, e a chave vem de variável de ambiente.
+
+Interface `IGeradorDeToken` em `Mobilidade.Domain/Interfaces/`, implementação
+`GeradorDeTokenJwt` em `Mobilidade.Infrastructure/Seguranca/`. Endpoint em
+`Mobilidade.Api/Controllers/AuthController.cs`.
+
+### A chave nunca está no código
+
+```csharp
+var chave = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Chave"]!));
+var credenciais = new SigningCredentials(chave, SecurityAlgorithms.HmacSha256);
+```
+
+O código conhece apenas o **nome** da configuração. O valor vem da variável de
+ambiente `Jwt__Chave` (o duplo underscore é como o ASP.NET mapeia a hierarquia
+`Jwt:Chave` para variáveis de ambiente), definida fora do repositório. O mesmo
+vale para `Jwt__Emissor` e `Jwt__Audiencia`.
+
+### Login com a senha certa — 200 com token
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"mesmasenha123\"}"
+```
+
+```
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+
+{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJPcGVyYWRvciIsImV4cCI6MTc5MDI1NTU0NCwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.<assinatura truncada>"}
+```
+
+### O token decodificado, com as três partes separadas
+
+**Cabeçalho** (`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9`):
+```json
+{"alg":"HS256","typ":"JWT"}
+```
+
+**Corpo** (`eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUi...`):
+```json
+{
+  "sub": "2",
+  "email": "joao@teste.com",
+  "role": "Operador",
+  "exp": 1790255544,
+  "iss": "painel-mobilidade",
+  "aud": "painel-mobilidade"
+}
+```
+
+**Assinatura:** truncada nesta evidência. É o HMAC-SHA256 do cabeçalho mais o
+corpo, calculado com a chave que só o servidor conhece.
+
+As seis claims exigidas estão presentes. O corpo é legível por qualquer um —
+base64 não é criptografia, é codificação. O que protege o token não é esconder
+o conteúdo, é a assinatura.
+
+### Dois logins do mesmo usuário geram tokens diferentes
+
+Primeira chamada, às 12:42:23:
+```
+{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJPcGVyYWRvciIsImV4cCI6MTc5MDI1NTU0NCwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.Mw2RM2MAjATWwu<truncada>"}
+```
+
+Segunda chamada, às 12:49:31:
+```
+{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJPcGVyYWRvciIsImV4cCI6MTc5MDI1NTk3MSwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.oDl2cFS8C0oi3m<truncada>"}
+```
+
+**Por que diferem.** O cabeçalho é idêntico nos dois. No corpo, a **única**
+claim que mudou foi o `exp`: `1790255544` contra `1790255971` — 427 segundos
+de diferença, exatamente o intervalo entre as duas requisições (12:42:23 e
+12:49:31). `sub`, `email`, `role`, `iss` e `aud` são iguais.
+
+Não há aleatoriedade envolvida: o `exp` é calculado no momento da emissão com
+`DateTime.UtcNow.AddMinutes(30)`. Dois logins **no mesmo segundo** produziriam
+tokens byte a byte idênticos, porque as claims e a chave seriam as mesmas. Isso
+é o oposto do hash de senha, onde o salt aleatório garante saídas distintas
+mesmo para entradas iguais.
+
+A assinatura, porém, mudou **inteira** — não apenas na parte correspondente ao
+`exp`. Essa é a propriedade do HMAC que a Issue D vai explorar: alterar um único
+caractere da entrada produz uma saída completamente diferente, e é por isso que
+um token com a claim `role` adulterada não sobrevive à validação.
+
+### Senha errada — 401
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"senhaerrada999\"}"
+```
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"mensagem":"Email ou senha inválidos."}
+```
+
+### Email inexistente — 401 idêntico
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"naoexiste@teste.com\",\"senha\":\"mesmasenha123\"}"
+```
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"mensagem":"Email ou senha inválidos."}
+```
+
+**As duas respostas são idênticas** em status, cabeçalhos e corpo. Um atacante
+que mande mil emails ao endpoint não consegue separar os que existem dos que
+não existem a partir da resposta.
+
+### `try/catch` no login: exceção deliberada à decisão #20
+
+`Email.Criar` lança `DomainException` para email malformado, e o
+`DomainExceptionFilter` traduziria isso para **422**. No login isso abriria um
+terceiro comportamento observável:
+
+| Entrada | Sem o `try/catch` | Com o `try/catch` |
+|---|---|---|
+| `"abc"` (malformado) | 422 | 401 |
+| `naoexiste@teste.com` | 401 | 401 |
+| senha errada | 401 | 401 |
+
+O 422 diria ao atacante que aquele valor nem chegou a ser consultado — outra
+forma de vazar informação. Por isso o controller captura a exceção no ponto:
+
+```csharp
+Email email;
+try
+{
+    email = Email.Criar(request.Email);
+}
+catch (DomainException)
+{
+    return Unauthorized(new { mensagem = "Email ou senha inválidos." });
+}
+```
+
+A decisão #20 removeu os `try/catch` dos controllers justamente para não
+depender de disciplina. Este é uma exceção consciente: o login é o único
+endpoint que precisa **achatar** todos os erros num único status, e isso é o
+oposto do que o filtro global faz, que é distinguir tipos de erro.
+
+### Bug encontrado: chave ausente só falha no primeiro login
+
+O primeiro teste do endpoint respondeu 500. O log:
+
+```
+fail: Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddleware[1]
+      System.ArgumentNullException: Value cannot be null. (Parameter 's')
+         at System.Text.Encoding.GetBytes(String s)
+         at Mobilidade.Infrastructure.Seguranca.GeradorDeTokenJwt.Gerar(Usuario usuario)
+            in GeradorDeTokenJwt.cs:line 29
+         at Mobilidade.Api.Controllers.AuthController.Login(LoginRequest request)
+            in AuthController.cs:line 46
+```
+
+A variável `Jwt__Chave` estava definida em outra janela do terminal, não na que
+subiu a API. `_config["Jwt:Chave"]` devolveu `null` e o `GetBytes` estourou.
+
+O `!` (null-forgiving) na linha 29 é uma promessa ao compilador, não uma
+verificação em runtime — ele silencia o aviso e não impede nada.
+
+**Dívida identificada:** a aplicação sobe normalmente sem a chave e só quebra
+na primeira tentativa de login, com 500 e sem mensagem útil ao cliente. O
+correto seria validar a configuração na inicialização e falhar ali, como a
+migration `SeedUsuarioAdmin` faz com `ADMIN_SENHA_INICIAL`. Registrado como
+pendência.
+
+### Por quê
+
+- **Claim `role` no nome curto, não `ClaimTypes.Role`:** o `ClaimTypes.Role` do
+  .NET expande para a URI
+  `http://schemas.microsoft.com/ws/2008/06/identity/claims/role`, que é o que
+  aparecia no token na primeira versão. A issue pede `role`, e o token fica
+  menor e mais legível. O custo é que a validação da Issue C precisa declarar
+  `RoleClaimType = "role"` — sem isso, `[Authorize(Roles = "Admin")]` procura
+  pela URI, não encontra, e devolve 403 até para quem é Admin.
+- **Expiração de 30 minutos:** meio do intervalo permitido pela issue (15 a
+  60). Um token roubado vale por no máximo meia hora; menos que isso obrigaria
+  reautenticação frequente num sistema que ainda não tem refresh token.
+- **`DateTime.UtcNow`, não `DateTime.Now`:** o `exp` do JWT é definido em UTC.
+  Usar hora local faria o token expirar 3 horas fora do previsto neste fuso, e
+  o erro só apareceria em produção com outro fuso configurado.
+- **`LoginRequest` sem `[EmailAddress]` e sem `[StringLength]`:** o
+  `CriarUsuarioRequest` tem as duas anotações, mas no login elas gerariam 400
+  para entradas malformadas — um terceiro status observável, pelo mesmo motivo
+  do `try/catch` acima. O login valida tudo internamente e responde sempre 401.
+- **`LoginResponse` carrega só o token:** nada de dados do usuário na resposta.
+  Quem precisar deles lê as claims do próprio token.
+- **Chave em variável de ambiente, não em `appsettings.Development.json`:** o
+  arquivo está no `.gitignore`, mas já foi commitado por engano uma vez neste
+  repositório. Variável de ambiente não tem como ser commitada.
+
+### Pendente
+
+- **Validar a presença da chave na inicialização**, em vez de falhar no
+  primeiro login.
+- **Grep no log após login com senha errada**, provando que a senha digitada
+  não aparece — item da Issue D.
+- **Rate limiting no login.** Nada limita tentativas hoje; cem requisições
+  seguidas com senha errada são todas processadas. Item da Issue D.
