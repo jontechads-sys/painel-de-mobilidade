@@ -490,7 +490,7 @@ compilando sem erro, eventos já referenciados em Incidente.cs.
 ## 14. Tempo de emissão de IncidenteAberto
 
 **O que foi decidido**
-IncidenteAberto não é emetido dentro de `Abrir()` e sim via metodo separado - `RegistrarIncidenteAberto()` (chamado depois de `Salvar()` )
+IncidenteAberto não é eme tido dentro de `Abrir()` e sim via metodo separado - `RegistrarIncidenteAberto()` (chamado depois de `Salvar()` )
 
 **Alternativa considerada**
 Salvar dentro de Abrir (sem passar Id de Incidente).
@@ -1410,3 +1410,500 @@ uma regra de camadas.
 Os três handlers em `Mobilidade.Infrastructure/Consultas/`, os DTOs em
 `Mobilidade.Application/Consultas/`. `EVIDENCIAS.md`, seção "Semana 6: CQRS",
 com o SQL gerado e as três queries respondendo.
+
+## 29. `PasswordHasher` do ASP.NET Core Identity (PBKDF2), não SHA256
+
+**O que foi decidido**
+
+O hash de senha usa `PasswordHasher<object>` do ASP.NET Core Identity, que
+aplica PBKDF2 com HMAC-SHA512, salt aleatório de 128 bits por senha e
+100.000 iterações (padrão da v3 do formato). A implementação
+`HasherDeSenhaPbkdf2` vive em `Mobilidade.Infrastructure/Seguranca/`,
+atrás da interface `IHasherDeSenha`, declarada em `Mobilidade.Domain/Interfaces/`.
+
+O `object` no genérico existe porque a API do Identity espera um tipo de
+usuário como primeiro parâmetro de `HashPassword`, mas não o utiliza no
+cálculo — o projeto não adota o Identity inteiro, só o algoritmo.
+
+**Alternativa considerada**
+
+1. `SHA256` ou `MD5`, disponíveis no `System.Security.Cryptography` sem
+   pacote nenhum.
+2. BCrypt, via `BCrypt.Net-Next`.
+3. Argon2, vencedor do Password Hashing Competition.
+
+**Por que foram rejeitadas**
+
+SHA256 e MD5 são hashes de propósito geral, projetados para serem rápidos —
+e velocidade é exatamente a propriedade errada aqui. Uma GPU comum calcula
+bilhões de SHA256 por segundo, o que torna a força bruta sobre um banco
+vazado viável em vez de proibitiva. Eles também não têm salt embutido: duas
+contas com a mesma senha produziriam o mesmo hash, e tabelas pré-calculadas
+(rainbow tables) resolveriam as senhas comuns sem nenhum cálculo novo.
+Nenhuma das duas falhas se corrige "usando SHA256 com cuidado" — o
+algoritmo não tem custo ajustável.
+
+Argon2 é o mais forte dos três candidatos legítimos, por consumir memória
+além de tempo, o que penaliza ataque com GPU de forma que PBKDF2 não
+penaliza. Foi rejeitado por dependência: em .NET não há implementação de
+primeira parte, e os pacotes disponíveis são mantidos por terceiros com
+cadência irregular — numa semana cujo tema é segurança, adicionar
+dependência menos auditada para a peça mais sensível do sistema é troca
+ruim.
+
+BCrypt é tecnicamente adequado e teria servido. O desempate foi
+procedência: `Microsoft.Extensions.Identity.Core` vem do mesmo fornecedor
+do runtime, já alinhado com a versão 10.0.11 usada no resto do projeto, e
+não acrescenta cadeia de manutenção nova. BCrypt também tem o limite de 72
+bytes na senha, que trunca em silêncio — não é problema hoje, mas é um
+comportamento surpreendente a menos.
+
+**O que mudaria de ideia**
+
+Se surgisse implementação de Argon2id mantida pela Microsoft ou equivalente
+em confiabilidade, a troca valeria: a interface `IHasherDeSenha` existe
+justamente para que isso custe uma classe nova na `Infrastructure`, sem
+tocar no `Usuario`. O formato do `PasswordHasher` também carrega a versão
+dentro do próprio hash e devolve `SuccessRehashNeeded` quando o custo está
+defasado, o que permite migrar senha por senha no login, sem obrigar todo
+mundo a trocar de senha.
+
+**Evidência**
+
+`IHasherDeSenha.cs` (Domain), `HasherDeSenhaPbkdf2.cs` (Infrastructure).
+Testes em `UsuarioTests.cs`:
+`Registrar_MesmaSenhaEmDoisUsuarios_GeraHashesDiferentes` prova o salt
+aleatório (mesma senha, mesmo hasher, hashes distintos);
+`SenhaConfere_ComSenhaCerta_RetornaTrue` e
+`SenhaConfere_ComSenhaErrada_RetornaFalse` provam a verificação nos dois
+sentidos. Saída completa em `EVIDENCIAS.md`.
+
+## 30. Chave JWT em variável de ambiente, não em `appsettings`
+
+**O que foi decidido**
+
+A chave de assinatura do JWT vem da variável de ambiente `Jwt__Chave` (duplo
+underscore é como o ASP.NET mapeia a hierarquia `Jwt:Chave`). O código conhece
+apenas o nome da configuração:
+
+```csharp
+var chave = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Chave"]!));
+```
+
+`Jwt__Emissor` e `Jwt__Audiencia` seguem o mesmo caminho, por consistência,
+ainda que não sejam segredo.
+
+**Alternativa considerada**
+
+1. `appsettings.Development.json`, que já está no `.gitignore` e já guarda a
+   connection string local.
+2. .NET User Secrets (`dotnet user-secrets`), que mantém o arquivo fora da
+   pasta do projeto, no perfil do usuário.
+
+**Por que foram rejeitadas**
+
+A alternativa 1 é a mais prática, e quase foi escolhida — mas este repositório
+já commitou esse arquivo por engano uma vez. A remoção do rastreamento
+aconteceu em commit anterior e foi justamente o que quebrou o `dotnet ef`
+nesta semana (ver `EVIDENCIAS.md`, seção da migration `CriaTabelaUsuarios`).
+Um arquivo no `.gitignore` depende de o `.gitignore` estar correto e de
+ninguém usar `git add -f`; uma variável de ambiente não tem como ser
+commitada, porque não é arquivo.
+
+User Secrets é a recomendação oficial da Microsoft para desenvolvimento e
+seria tecnicamente superior à variável de ambiente para este caso. Foi
+rejeitada por tempo: exigiria um passo de setup a mais na máquina e no README,
+no penúltimo dia da semana. Registrado como melhoria.
+
+**O custo assumido**
+
+Variável de ambiente definida com `set` vale só para a janela do terminal onde
+foi executada. Isso já custou um 500 durante o desenvolvimento: a API subiu numa
+janela sem a variável e o `GetBytes` recebeu `null` (evidência completa no
+`EVIDENCIAS.md`). Em produção a variável viria do orquestrador e o problema não
+existiria, mas em desenvolvimento é uma fonte real de confusão.
+
+**O que mudaria de ideia**
+
+Adotar User Secrets em desenvolvimento, mantendo variável de ambiente em
+produção — que é o desenho recomendado. Isso elimina o problema da janela do
+terminal sem reintroduzir o risco de commit acidental.
+
+**Evidência**
+
+`GeradorDeTokenJwt.cs`, que só referencia nomes de configuração. `Program.cs`,
+com o mesmo padrão em `TokenValidationParameters`. Ausência de qualquer chave
+em arquivo versionado.
+
+---
+
+## 31. Expiração do token em 30 minutos
+
+**O que foi decidido**
+
+`expires: DateTime.UtcNow.AddMinutes(30)` no `GeradorDeTokenJwt`. Sem refresh
+token: expirou, o usuário faz login de novo.
+
+**Alternativa considerada**
+
+15 minutos (o mínimo permitido pela issue) ou 60 (o máximo).
+
+**Por que foram rejeitadas**
+
+A conta é direta: um token roubado vale até expirar, e não há como revogá-lo
+antes disso — é essa a natureza de um token sem estado, que o servidor valida
+pela assinatura sem consultar nada. Menos tempo reduz a janela de dano; mais
+tempo reduz o atrito para o usuário.
+
+15 minutos seria a escolha se houvesse refresh token: o usuário não perceberia
+as renovações. Sem ele, cada expiração é uma tela de login no meio do trabalho,
+e um operador registrando atendimentos seria interrompido quatro vezes por
+hora.
+
+60 minutos dobra a janela de exposição sem ganho proporcional de conveniência —
+quem vai trabalhar uma hora seguida provavelmente vai trabalhar duas.
+
+30 é o meio do intervalo e a escolha defensável enquanto não há renovação.
+
+**O que mudaria de ideia**
+
+Implementar refresh token. Com ele, o token de acesso cairia para 15 minutos ou
+menos, e o refresh (esse sim revogável, porque fica no banco) assumiria a
+duração longa da sessão.
+
+**Evidência**
+
+`GeradorDeTokenJwt.Gerar`. Claim `exp` visível no token decodificado no
+`EVIDENCIAS.md`, seção "Semana 7: Login e JWT". `ClockSkew = TimeSpan.Zero` no
+`Program.cs` garante que os 30 minutos sejam exatos — o padrão do .NET tolera 5
+minutos além do `exp`.
+
+---
+
+## 32. Login responde 401 idêntico para email inexistente e senha errada
+
+**O que foi decidido**
+
+`POST /api/auth/login` devolve o mesmo status e o mesmo corpo
+(`{"mensagem":"Email ou senha inválidos."}`) em três situações distintas: email
+malformado, email que não existe, e senha errada. A resposta não permite
+distinguir qual delas ocorreu.
+
+**Alternativa considerada**
+
+Mensagens específicas — "Usuário não encontrado" contra "Senha inválida" —, que
+é o que a maioria das interfaces faz e o que um usuário legítimo preferiria ao
+digitar errado.
+
+**Por que foi rejeitada**
+
+Mensagem específica transforma o endpoint de login num oráculo de existência de
+contas. Um atacante com uma lista de emails manda todos ao endpoint e separa,
+pela resposta, quais estão cadastrados. Isso não quebra nenhuma senha, mas
+entrega metade do trabalho: a partir daí ele sabe exatamente contra quais
+contas vale a pena tentar força bruta, e quais endereços pertencem a usuários
+daquele sistema — informação que tem valor próprio para phishing.
+
+O custo é real e aceito: quem esqueceu qual email cadastrou não descobre pelo
+login.
+
+**Consequência: o `try/catch` no controller**
+
+`Email.Criar` lança `DomainException` para email malformado, e o
+`DomainExceptionFilter` (decisão #20) traduziria isso para 422 — um terceiro
+comportamento observável, que diria ao atacante que aquele valor nem chegou a
+ser consultado. Por isso o `AuthController` captura a exceção no ponto e
+devolve o mesmo 401.
+
+Isso contraria deliberadamente a decisão #20, que removeu `try/catch` dos
+controllers. A diferença: o filtro global existe para **distinguir** tipos de
+erro, e o login é o único endpoint que precisa **achatar** todos num único
+status. Não é regressão, é requisito oposto.
+
+Pelo mesmo motivo, `LoginRequest` não tem `[EmailAddress]` nem
+`[StringLength(MinimumLength = 8)]`, que o `CriarUsuarioRequest` tem: as duas
+gerariam 400 na borda para entradas malformadas, criando outra resposta
+distinguível — e o `MinimumLength` revelaria a regra de tamanho de senha do
+sistema.
+
+**O que fica em aberto**
+
+A resposta é idêntica em status e corpo, mas **não em tempo**. Email
+inexistente retorna antes de qualquer cálculo de hash; senha errada só retorna
+depois do PBKDF2 com 100.000 iterações. Essa diferença é medível e permite
+enumeração por temporização. A correção usual é calcular um hash descartável no
+caminho do email inexistente, igualando o custo. Não implementado — registrado
+como dívida na Issue D.
+
+**Evidência**
+
+`EVIDENCIAS.md`, seção "Semana 7: Login e JWT", com as duas respostas 401 lado
+a lado e a tabela do `try/catch`.
+
+---
+
+## 33. Claim de papel como `role`, não `ClaimTypes.Role`
+
+**O que foi decidido**
+
+```csharp
+new Claim("role", usuario.Papel.Nome)
+```
+
+E, na validação, `RoleClaimType = "role"` dentro de
+`TokenValidationParameters`.
+
+**Alternativa considerada**
+
+`new Claim(ClaimTypes.Role, usuario.Papel.Nome)`, que é o padrão do .NET e foi
+a primeira versão implementada.
+
+**Por que foi rejeitada**
+
+`ClaimTypes.Role` não é a string `"role"`: é a constante que expande para
+`http://schemas.microsoft.com/ws/2008/06/identity/claims/role`. O token gerado
+na primeira tentativa carregava essa URI inteira como nome da claim, o que
+funciona com o `[Authorize(Roles = ...)]` sem configuração extra, mas:
+
+1. a issue pede explicitamente a claim `role`;
+2. a URI ocupa 60 caracteres em todo token emitido, sem acrescentar informação;
+3. qualquer cliente que não seja .NET precisaria conhecer essa convenção da
+   Microsoft para ler o papel.
+
+**O custo assumido**
+
+Com o nome curto, o ASP.NET não encontra mais a claim pelo caminho padrão. Sem
+`RoleClaimType = "role"` na validação, `[Authorize(Roles = "Admin")]` procura
+pela URI, não acha, e responde **403 inclusive para um Admin legítimo** — com
+token válido e assinatura correta. É uma falha silenciosa: nada no log indica
+que o problema é o nome da claim.
+
+**O que mudaria de ideia**
+
+Nada dentro deste escopo. A troca já foi feita e a linha de configuração que
+ela exige está no `Program.cs`.
+
+**Evidência**
+
+Token decodificado antes e depois da troca, no `EVIDENCIAS.md`, seção "Semana
+7: Login e JWT" — o corpo passa de
+`"http://schemas.microsoft.com/ws/2008/06/identity/claims/role":"Operador"`
+para `"role":"Operador"`.
+
+---
+
+## 34. `UsuarioResponse` como DTO de saída, em vez de devolver o agregado
+
+**O que foi decidido**
+
+`POST /api/usuarios` devolve `UsuarioResponse(int Id, string Email, string
+Papel)`. O agregado `Usuario` nunca é serializado para a resposta HTTP.
+
+**Alternativa considerada**
+
+Devolver o `Usuario` direto, como o `IncidentesController.Criar` faz com o
+`Incidente`.
+
+**Por que foi rejeitada**
+
+O `Usuario` tem a propriedade `SenhaHash`. Serializá-lo colocaria o hash em
+toda resposta de criação de usuário. Hash não é senha — não dá para revertê-lo
+—, mas entregá-lo a qualquer cliente que crie uma conta é expor sem motivo o
+material que um ataque offline usaria, junto com a informação de qual algoritmo
+e quantas iterações o sistema usa (o prefixo `AQAAAAIAAYagAAAAE` codifica
+exatamente isso).
+
+O padrão do `IncidentesController` mostra o problema na prática: como ele
+devolve a entidade, as respostas carregam `"eventos":[]` e objetos aninhados
+com `"incidente":null` — campos internos do agregado vazando no contrato HTTP
+porque ninguém decidiu o contrário.
+
+**Por que não é `[JsonIgnore]` no `SenhaHash`**
+
+Seria mais barato, mas funciona por omissão: protege o campo que alguém lembrou
+de anotar. Uma propriedade nova adicionada ao agregado amanhã sai na resposta
+por padrão. Com DTO de saída, o padrão é o inverso — só sai o que foi declarado.
+
+**O que mudaria de ideia**
+
+Nada aqui. O caminho oposto seria aplicar a mesma correção ao
+`IncidentesController`, que é dívida existente e não escopo desta semana.
+
+**Evidência**
+
+`UsuarioResponse.cs`. Respostas 201 no `EVIDENCIAS.md`, seção "Semana 7:
+Registro de usuário", sem `senhaHash` no corpo.
+
+---
+
+## 35. Seed do Admin na migration, com falha explícita sem a variável
+
+**O que foi decidido**
+
+O usuário Admin inicial nasce na migration `SeedUsuarioAdmin`, que lê
+`ADMIN_SENHA_INICIAL` do ambiente, calcula o hash com o mesmo
+`HasherDeSenhaPbkdf2` da aplicação, e insere via `migrationBuilder.InsertData`.
+Sem a variável definida, a migration **lança** `InvalidOperationException` com
+mensagem explicativa, em vez de criar um admin com senha vazia ou previsível.
+
+**Alternativa considerada**
+
+1. Seed no start da aplicação: um trecho no `Program.cs` que verifica se o
+   admin existe e o cria se não existir.
+2. Seed na migration, mas pulando em silêncio quando a variável não estivesse
+   definida.
+
+**Por que foram rejeitadas**
+
+A alternativa 1 é o padrão mais comum e tem vantagens reais — a senha não passa
+pelo SQL da migration, e não há exigência de variável de ambiente para rodar
+`dotnet ef database update`. Foi rejeitada porque a issue pede seed **na
+migration**, e porque o seed na migration garante que o admin exista assim que
+o banco está migrado, sem depender de a API ter subido alguma vez.
+
+A alternativa 2 é a que o prazo favorecia e é justamente por isso que foi
+descartada: seed pulado em silêncio deixa o banco sem nenhum admin, e a
+descoberta vem na primeira tentativa de login — possivelmente em outro
+ambiente, possivelmente por outra pessoa. Falhar no momento em que o problema
+acontece é mais barato do que descobrir depois.
+
+**O custo assumido**
+
+O `InsertData` do EF emite o hash como valor literal no SQL. Quem rodar a
+migration vê o hash completo do admin no log. Hash não é senha, mas é material
+que não precisaria estar ali — consequência direta de semear pela migration em
+vez de pelo código da aplicação.
+
+Além disso, qualquer pipeline de CI que rode `dotnet ef database update`
+precisa definir `ADMIN_SENHA_INICIAL`, ou a migration falha. Isso é o
+comportamento desejado, mas é um acoplamento novo entre o processo de migração
+e a configuração de ambiente.
+
+**O que mudaria de ideia**
+
+Se o projeto passasse a ter múltiplos ambientes com processos de deploy
+distintos, o seed migraria para um comando administrativo separado — nem
+migration, nem start da aplicação — executado deliberadamente uma vez por
+ambiente.
+
+**Evidência**
+
+Migration `20260923225151_SeedUsuarioAdmin`. SQL executado e grep com saída
+vazia no `EVIDENCIAS.md`, seção "Semana 7: Registro de usuário".
+
+## 36. `RegistrarIncidenteAberto()` recusa evento com `Id` zero
+
+**Contexto: a dívida que esta decisão paga**
+
+A decisão #14 registrou que `IncidenteAberto` não pode ser emitido dentro de
+`Abrir()`, porque o `Id` só existe depois que o banco o gera (`IDENTITY`). A
+solução foi um método separado, `RegistrarIncidenteAberto()`, chamado pelo caso
+de uso **depois** de `_repositorio.Criar(incidente)`.
+
+O custo foi anotado na própria #14: "um caso de uso novo precisa lembrar de
+chamar o método". O que a sabatina da Semana 6 apontou é que o problema é pior
+do que isso — o método é público e não tinha guarda nenhuma. Chamá-lo **antes**
+da persistência compilava, rodava, e gravava um evento com `IncidenteId = 0`.
+
+Isso contradiz a decisão #4, que estabeleceu o construtor privado justamente
+para que a invariante fosse **estrutural, não comportamental**. Um método
+público sem guarda devolve a garantia para a disciplina de quem chama.
+
+**O que foi decidido**
+
+`RegistrarIncidenteAberto()` verifica o `Id` antes de construir o evento:
+
+```csharp
+public void RegistrarIncidenteAberto()
+{
+    if (Id == 0)
+    {
+        throw new DomainException("O incidente precisa ter um ID válido antes de gerar o evento.");
+    }
+
+    var incidenteAberto = new IncidenteAberto(Id, Severidade, Periodo.Inicio);
+    _eventos.Add(incidenteAberto);
+}
+```
+
+A guarda vem **antes** da construção do evento, não depois: um `IncidenteAberto`
+com `IncidenteId = 0` nunca chega a existir, nem em memória.
+
+**Alternativa considerada**
+
+A segunda saída oferecida pela issue: o evento nasceria em `Abrir()` sem `Id`, e
+o despachador preencheria o campo antes de publicar.
+
+**Por que foi rejeitada**
+
+Ela resolve o sintoma e cria dois problemas maiores.
+
+O primeiro é que o evento passaria a existir num estado inválido por desenho —
+um `IncidenteAberto` com `IncidenteId = 0` seria normal, e a correção viria
+depois, em outro componente. A decisão #5 rejeitou exatamente esse padrão no
+`Severidade`: valor inválido que existe e depende de alguém corrigir é o oposto
+de invariante estrutural.
+
+O segundo é que o `IncidenteAberto` é um `record` imutável. Preencher o `Id`
+depois exigiria torná-lo mutável, ou reconstruí-lo no despachador — e
+reconstruir significa o despachador montando um evento de domínio, que é
+precisamente o que a decisão #14 rejeitou ao descartar a alternativa do handler
+montar o evento sozinho.
+
+Há ainda um custo menor: a responsabilidade do despachador deixaria de ser
+"entregar eventos a quem escuta" e passaria a incluir "consertar eventos antes
+de entregar". Um despachador que conhece campos específicos de um evento
+específico deixa de ser genérico.
+
+**O que se perde com a escolha**
+
+A guarda protege contra o uso errado, mas não o torna impossível. Um caso de uso
+novo que esqueça de chamar `RegistrarIncidenteAberto()` continua compilando e
+rodando — só que agora, se chamar na hora errada, falha alto em vez de gravar
+lixo. É uma melhoria do modo de falha, não a eliminação da falha.
+
+A garantia estrutural completa exigiria o que a decisão #14 já descartou por
+custo: `Guid` gerado no domínio em vez de `int` gerado pelo banco. Com isso o
+evento poderia nascer dentro de `Abrir()`, com Id válido, e o método separado
+deixaria de existir.
+
+**O que mudaria de ideia**
+
+Migrar a chave de `int` (`IDENTITY`) para `Guid` gerado no domínio. Aí esta
+decisão e a #14 se tornam desnecessárias juntas: `Abrir()` já teria o `Id` no
+momento da criação, emitiria o evento diretamente, e não haveria método público
+extra nem guarda para proteger.
+
+O custo dessa migração — o motivo de ela não caber nesta semana — é amplo e vale
+mapear, porque é o que separa a decisão consciente do "não fiz":
+
+- A PK de `Incidente` muda de `int` para `Guid`, e com ela a FK em `Atendimento`
+  e a FK em `Auditoria` — três colunas, numa migration que altera tipo de chave
+  em tabelas que já têm dados (`int` para `uniqueidentifier` não é conversão
+  implícita; exige recriar as FKs).
+- Os DTOs de leitura e de escrita que hoje expõem ou recebem `int Id` passam a
+  `Guid`, e todo cliente da API muda junto.
+- Os testes que constroem incidentes com `Id` numérico esperado (o próprio
+  `RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero` depende de `Id`
+  nascer `0`) precisam ser reescritos — com `Guid`, "sem Id" deixa de ser `0` e
+  passa a ser `Guid.Empty`, então a própria guarda muda de forma.
+- O `IDENTITY` do banco deixa de gerar a chave; a geração passa para o domínio,
+  o que muda o comportamento de inserção e a estratégia do EF Core para a PK.
+
+É uma mudança de fundação, não um ajuste. Levada à sabatina como pergunta
+aberta: resolver a raiz agora valia esse custo, ou a guarda desta decisão é a
+priorização certa até que outra necessidade justifique o `Guid`?
+
+**Evidência**
+
+`Incidente.RegistrarIncidenteAberto()`. Teste
+`RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero` em
+`IncidenteTests.cs`, com o ciclo comentar/falhar/descomentar registrado no
+`EVIDENCIAS.md`:
+
+1. Guarda ativa: `total: 12; falhou: 0`.
+2. `if` e `throw` comentados: `total: 12; falhou: 1` — **apenas** o teste da
+   guarda falha, com `Assert.Throws() Failure: No exception was thrown`. Os
+   outros 11 continuam passando, o que confirma que o teste mede essa guarda e
+   não outra coisa.
+3. Guarda restaurada: `total: 12; falhou: 0`.

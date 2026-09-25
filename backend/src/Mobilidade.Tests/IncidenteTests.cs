@@ -112,5 +112,13 @@ public class IncidenteTests
 
         Assert.Equal("Incidente encerrado não pode ter o bairro alterado.", excecao.Message);
     }
+    [Fact]
+    public void RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero()
+    {
+        var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise"); 
+
+        Assert.Equal(0, incidente.Id);
+        Assert.Throws<DomainException>(() => incidente.RegistrarIncidenteAberto());
+    }
 
 }

@@ -1435,3 +1435,1945 @@ consultada: `IncidentesPorBairroQuery(int BairroId, Periodo Intervalo)`, e o
 handler usa `Intervalo.Inicio` e `Intervalo.Fim` como limites do `WHERE`.
 Período sem fim (`Fim == null`) é tratado como "até agora".
 
+## Semana 7: Hash de senha — `Usuario`, `IHasherDeSenha` e PBKDF2
+
+### O que se quer provar
+
+A senha em texto entra em `Usuario.Registrar` e não sai: o agregado guarda
+apenas `SenhaHash`, e não existe propriedade ou método que devolva a senha
+original. Duas contas com a mesma senha produzem hashes diferentes, porque
+o `PasswordHasher` do ASP.NET Core Identity gera salt aleatório por senha.
+A verificação funciona nos dois sentidos: senha certa confere, senha errada
+não confere.
+
+Domínio em `Mobilidade.Domain/Entity/Usuario.cs`, `ValueObjects/Email.cs`,
+`ValueObjects/Papel.cs` e `Interfaces/IHasherDeSenha.cs`. Implementação em
+`Mobilidade.Infrastructure/Seguranca/HasherDeSenhaPbkdf2.cs`. Testes em
+`Mobilidade.Tests/UsuarioTests.cs`.
+
+Os testes usam o hasher real (`new HasherDeSenhaPbkdf2()`), não um dublê —
+um fake com salt fixo faria o teste do salt passar sem provar nada sobre o
+algoritmo que a aplicação de fato usa.
+
+### O contrato cobrado pelo compilador
+
+Antes de implementar os métodos, a classe declarou `: IHasherDeSenha` vazia.
+O build recusou:
+
+```
+Seguranca/HasherDeSenhaPbkdf2.cs(6,36): error CS0535: "HasherDeSenhaPbkdf2"
+não implementa membro de interface "IHasherDeSenha.Gerar(string)"
+Seguranca/HasherDeSenhaPbkdf2.cs(6,36): error CS0535: "HasherDeSenhaPbkdf2"
+não implementa membro de interface "IHasherDeSenha.Verificar(string, string)"
+```
+
+A interface não é documentação: o compilador exige as duas assinaturas
+exatas antes de aceitar a classe como implementação.
+
+### Comando
+
+```bash
+dotnet test --filter UsuarioTests
+```
+
+**Saída:**
+
+```
+[xUnit.net 00:00:00.08]   Discovering: Mobilidade.Tests
+[xUnit.net 00:00:00.13]   Discovered:  Mobilidade.Tests
+[xUnit.net 00:00:00.15]   Starting:    Mobilidade.Tests
+[xUnit.net 00:00:00.55]   Finished:    Mobilidade.Tests
+  Mobilidade.Tests teste net10.0 êxito (1,3s)
+
+Resumo do teste: total: 5; falhou: 0; bem-sucedido: 5; ignorado: 0; duração: 1,3s
+Construir êxito(s) com 4 aviso(s) em 3,3s
+```
+
+> Saídas cortadas: removidos os avisos de build (NU1903, CS8618, CS8602) e a
+> lista de projetos compilados, que se repetem em todas as execuções.
+
+### Os cinco casos
+
+| Teste | O que prova |
+|---|---|
+| `SenhaConfere_ComSenhaCerta_RetornaTrue` | a senha registrada confere contra o próprio hash |
+| `SenhaConfere_ComSenhaErrada_RetornaFalse` | senha diferente não confere |
+| `Registrar_MesmaSenhaEmDoisUsuarios_GeraHashesDiferentes` | salt aleatório por senha |
+| `Registrar_ComSenhaCurta_LancaDomainException` | 7 caracteres é rejeitado |
+| `Registrar_ComSenhaDeOitoCaracteres_CriaUsuario` | 8 caracteres é aceito |
+
+### Os dois testes que falharam antes de passar
+
+**1. `SenhaConfere_ComSenhaErrada_RetornaFalse` — assert invertido**
+
+O primeiro esboço repetiu o `Assert.True` do teste anterior:
+
+```
+Assert.True() Failure
+Expected: True
+Actual:   False
+UsuarioTests.cs(36,0): at UsuarioTests.SenhaConfere_ComSenhaErrada_RetornaFalse()
+```
+
+`Actual: False` é o comportamento correto do domínio — o `SenhaConfere`
+rejeitou a senha errada. O que estava errado era a expectativa do teste.
+Corrigido para `Assert.False`.
+
+Essa falha responde a pergunta que o par de testes existe para responder: se
+`SenhaConfere` devolvesse `true` incondicionalmente, este teste teria passado
+com o `Assert.True`. Ele devolveu `false`, logo a comparação de fato acontece.
+
+**2. `Registrar_ComSenhaCurta_LancaDomainException` — senha longa demais**
+
+A senha usada no primeiro esboço tinha nove caracteres (`"123456789"`), acima
+do mínimo:
+
+```
+Assert.Throws() Failure: No exception was thrown
+Expected: typeof(Mobilidade.Domain.Excecoes.DomainException)
+UsuarioTests.cs(59,0): at UsuarioTests.Registrar_ComSenhaCurta_LancaDomainException()
+```
+
+O `Registrar` aceitou a senha e criou o usuário — correto, já que a regra é
+`Length < 8`. Corrigido para uma senha de sete caracteres.
+
+### Tentativa rejeitada: assert sobre o objeto errado
+
+O teste do salt passou na primeira execução sem provar nada. O assert
+comparava as duas instâncias do hasher:
+
+```csharp
+Assert.NotEqual(hasherUsuario1, hasherUsuario2);
+```
+
+Duas instâncias distintas de uma classe nunca são iguais, então esse assert
+passaria mesmo se o algoritmo não tivesse salt — não olha para senha nem
+para hash. A segunda tentativa comparava `usuario1` com `usuario2`, com o
+mesmo defeito.
+
+Corrigido para comparar os hashes, com um **único** hasher compartilhado
+pelos dois usuários:
+
+```csharp
+Assert.NotEqual(usuario1.SenhaHash, usuario2.SenhaHash);
+```
+
+Com um hasher só, a única explicação possível para a diferença entre os
+hashes é o salt gerado por chamada.
+
+### Conflito de versão de pacote ao instalar o Identity
+
+`dotnet add package Microsoft.Extensions.Identity.Core` (sem versão) trouxe a
+10.0.12 e o restore falhou:
+
+```
+error: NU1605: Downgrade de pacote detectado:
+Microsoft.Extensions.Configuration.Abstractions de 10.0.12 para 10.0.11.
+ Mobilidade.Infrastructure -> Microsoft.Extensions.Identity.Core 10.0.12
+   -> Microsoft.Extensions.Diagnostics 10.0.12
+   -> Microsoft.Extensions.Configuration 10.0.12
+   -> Microsoft.Extensions.Configuration.Abstractions (>= 10.0.12)
+ Mobilidade.Infrastructure
+   -> Microsoft.Extensions.Configuration.Abstractions (>= 10.0.11)
+```
+
+A Infrastructure já usava `Configuration.Abstractions` 10.0.11; a 10.0.12 do
+Identity exigia 10.0.12 ou maior. Resolvido fixando o pacote na versão que o
+resto do projeto usa:
+
+```bash
+dotnet add src/Mobilidade.Infrastructure package Microsoft.Extensions.Identity.Core --version 10.0.11
+```
+
+```
+info : PackageReference do pacote 'Microsoft.Extensions.Identity.Core' versão
+'10.0.11' atualizada no arquivo 'Mobilidade.Infrastructure.csproj'.
+log  : Mobilidade.Infrastructure.csproj restaurado (em 1,34 seg).
+```
+
+### Por quê
+
+- **Interface no Domain, implementação na Infrastructure:** o `Usuario` sabe
+  *que* a senha vira hash; *como* (algoritmo, custo, salt) é decisão de
+  infraestrutura. Mesmo DIP já aplicado a `IIncidenteRepository` — o agregado
+  depende da abstração, e trocar PBKDF2 por outro algoritmo custa uma classe
+  nova, sem tocar no domínio (decisão #29).
+- **PBKDF2 em vez de SHA256:** SHA256 é rápido por projeto, e velocidade é a
+  propriedade errada para senha — uma GPU calcula bilhões por segundo,
+  tornando força bruta sobre banco vazado viável. Também não tem salt
+  embutido nem custo ajustável (decisão #29).
+- **`PasswordHasher<object>`:** a API do Identity espera um tipo de usuário
+  como primeiro parâmetro de `HashPassword`, mas não o usa no cálculo. O
+  projeto não adota o Identity inteiro, só o algoritmo — daí o `object` e a
+  instância descartável `SemUsuario`.
+- **`Verificar` aceita `SuccessRehashNeeded` como sucesso:** esse resultado
+  significa senha correta com hash gerado por um custo antigo. Tratá-lo como
+  falha impediria o login de quem se registrou antes de uma mudança de
+  parâmetros.
+- **`Papel` como value object, não enum:** `(Papel)99` compilaria com enum. Com
+  construtor privado e instâncias estáticas, um terceiro papel é
+  estruturalmente impossível — mesmo raciocínio da decisão #5, aplicado aqui.
+  O `Nome` é a string que vai para a claim `role` e para
+  `[Authorize(Roles = "Admin")]`.
+- **`Email` normaliza para minúsculas e sem espaços:** o índice único da
+  migration compara texto. Sem normalizar, `Fulano@X.com` e `fulano@x.com`
+  seriam duas contas para o mesmo endereço.
+- **A validação de 8 caracteres é testada nos dois lados da fronteira:** 7
+  rejeitado e 8 aceito provam que a regra é `< 8`, não `<= 8`.
+
+### Pendente nesta issue
+
+- ~~Mapeamento de `Usuario` no EF Core e migration com índice único no
+  email.~~ **Resolvido** na seção "Semana 7: Migration da tabela `Usuarios`".
+- ~~Repositório traduzindo violação de índice único para `DomainException`.~~
+  **Resolvido** em `RepositorioUsuariosEfCore.Criar`.
+- ~~Seed do Admin com senha vinda de variável de ambiente.~~ **Resolvido** na
+  seção "Semana 7: Registro de usuário".
+- ~~`POST /api/usuarios`.~~ **Resolvido** na seção "Semana 7: Registro de
+  usuário".
+- ~~**Prova no banco de que duas contas com a mesma senha têm hashes
+  diferentes.**~~ **Resolvido** na seção "Semana 7: Registro de usuário", com
+  o `SELECT` na tabela real.
+- Grep no repositório pela senha do seed, provando zero ocorrências fora da
+  variável de ambiente.
+
+  ## Semana 7: Migration da tabela `Usuarios` com índice único no email
+
+### O que se quer provar
+
+A tabela `Usuarios` existe no banco com as quatro colunas do agregado, e o
+email tem índice **único** — a garantia de unicidade fica no banco, não numa
+checagem de aplicação que duas requisições simultâneas conseguiriam furar.
+
+Os dois Value Objects (`Email` e `Papel`) são persistidos como texto via
+`ValueConverter`, mesmo mecanismo já usado para `Severidade` na decisão #5.
+
+Configuração em
+`src/Mobilidade.Infrastructure/Data/Configuracoes/UsuarioConfiguration.cs`.
+Registro em `IncidentesDbContext` (`DbSet<Usuario>` + `ApplyConfiguration`).
+
+### Conversão dos Value Objects
+
+```csharp
+builder.Property(u => u.Email)
+    .HasConversion(
+        email => email.Valor,
+        valor => Email.Criar(valor))
+    .HasMaxLength(254)
+    .IsRequired();
+
+builder.Property(u => u.Papel)
+    .HasConversion(
+        papel => papel.Nome,
+        nome => Papel.DeNome(nome))
+    .HasMaxLength(20)
+    .IsRequired();
+
+builder.HasIndex(u => u.Email).IsUnique();
+```
+
+O caminho de volta (`Email.Criar` e `Papel.DeNome`) não é só desserialização:
+são os mesmos métodos de validação usados na criação. Um valor inválido no
+banco — papel `"Gerente"`, email sem `@` — lança `DomainException` na leitura,
+em vez de materializar um agregado em estado impossível.
+
+### Migration criada
+
+```bash
+dotnet ef migrations add CriaTabelaUsuarios --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api
+```
+
+**Saída:**
+```
+Build succeeded.
+Done. To undo this action, use 'ef migrations remove'
+```
+
+### Tentativa de aplicar — falha de conexão
+
+```bash
+dotnet ef database update --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api
+```
+
+**Saída (trecho relevante):**
+```
+Microsoft.Data.SqlClient.SqlException (0x80131904): Erro de rede ou específico
+à instância ao estabelecer conexão com o SQL Server. O servidor não foi
+encontrado ou não estava acessível. (provider: Provedor de TCP, error: 0 -
+Este host não é conhecido.)
+ ---> System.ComponentModel.Win32Exception (11001): Este host não é conhecido.
+Error Number:11001,State:0,Class:20
+```
+
+O banco estava de pé:
+
+```bash
+docker ps
+```
+
+```
+CONTAINER ID   IMAGE                                        STATUS                        PORTS                     NAMES
+6c5ecf2f6f4a   painel-mobilidade-api                        Up 56 seconds                 0.0.0.0:8080->8080/tcp    painel-mobilidade-api-1
+04152ba45c54   mcr.microsoft.com/mssql/server:2022-latest   Up About a minute (healthy)   0.0.0.0:1433->1433/tcp    mobilidade-sqlserver
+```
+
+Erro 11001 é falha de **resolução de nome**, não de autenticação nem de
+servidor fora do ar: o cliente não descobriu o endereço do host. O
+`appsettings.json` aponta para `Server=sqlserver,1433` — nome do serviço no
+`docker-compose.yml`, que só resolve dentro da rede do Compose. O `dotnet ef`
+roda no host, fora dessa rede.
+
+O `appsettings.Development.json`, que apontava para `localhost`, não existe no
+repositório: ele consta no `.gitignore` (seção "Ambiente / segredos"), porque
+carrega a senha do banco. Um commit anterior removeu do rastreamento a cópia
+que havia sido commitada por engano, e com ela sumiu a configuração local desta
+máquina.
+
+### Migration aplicada
+
+Contornado passando a connection string do host diretamente:
+
+```bash
+dotnet ef database update --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api --connection "Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=SuaSenhaAqui;TrustServerCertificate=True"
+```
+
+**SQL executado:**
+```
+Applying migration '20260923165425_CriaTabelaUsuarios'.
+
+CREATE TABLE [Usuarios] (
+    [Id] int NOT NULL IDENTITY,
+    [Email] nvarchar(254) NOT NULL,
+    [SenhaHash] nvarchar(255) NOT NULL,
+    [Papel] nvarchar(20) NOT NULL,
+    CONSTRAINT [PK_Usuarios] PRIMARY KEY ([Id])
+);
+
+CREATE UNIQUE INDEX [IX_Usuarios_Email] ON [Usuarios] ([Email]);
+
+INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+VALUES (N'20260923165425_CriaTabelaUsuarios', N'10.0.11');
+Done.
+```
+
+**LINHA RELEVANTE**
+
+`CREATE UNIQUE INDEX [IX_Usuarios_Email] ON [Usuarios] ([Email]);`
+
+> Saídas cortadas: removidos o aviso NU1903, o aviso de versão das ferramentas
+> do EF e os comandos de lock/histórico de migration, que se repetem em toda
+> aplicação.
+
+### Por quê
+
+- **Índice único no email, não checagem na aplicação:** um `SELECT` antes do
+  `INSERT` tem janela de corrida — duas requisições simultâneas passam as
+  duas pela checagem e gravam as duas. O banco é o único ponto que decide
+  serialmente. A aplicação traduz a violação para `DomainException`; ela não
+  a previne.
+- **`HasMaxLength(254)` no email não é enfeite:** sem ele o EF geraria
+  `nvarchar(max)`, e o SQL Server recusa índice em coluna desse tipo. O
+  número é o limite de um endereço de email pelo padrão da internet.
+- **`Email` normalizado para minúsculas antes de chegar aqui:** o índice
+  único compara texto. Sem a normalização feita em `Email.Criar`,
+  `Fulano@X.com` e `fulano@x.com` seriam duas linhas distintas para o mesmo
+  endereço, e o índice não impediria nada.
+- **`HasMaxLength(255)` no `SenhaHash`:** o formato v3 do `PasswordHasher`
+  produz 84 caracteres em base64 (marcador de formato, algoritmo, iterações,
+  salt de 16 bytes e subchave de 32 bytes). 255 acomoda o atual com folga
+  para uma mudança de versão do formato.
+- **Sem índice no `SenhaHash`:** índice único ali significaria que duas
+  contas nunca poderiam ter o mesmo hash. Com salt aleatório isso quase
+  nunca colidiria, mas se colidisse o banco recusaria o cadastro — e a
+  recusa informaria que aquele hash já existe. Unicidade é regra de negócio
+  do email, não do hash.
+- **`ApplyConfiguration` explícito:** o `IncidentesDbContext` registra cada
+  configuração uma a uma, em vez de `ApplyConfigurationsFromAssembly`.
+  Esquecer a linha do `UsuarioConfiguration` não geraria erro nenhum — a
+  configuração seria ignorada em silêncio e a migration sairia com as
+  convenções padrão do EF, sem índice e com `nvarchar(max)`.
+
+### Pendente
+
+- ~~**`appsettings.Development.json` ausente.**~~ **Resolvido** na seção
+  seguinte: o arquivo foi recriado localmente com `localhost,1433`. Ele está
+  no `.gitignore` por carregar a senha, então continua fora do repositório —
+  quem clonar precisa criá-lo (pendência de documentação no README).
+- ~~**Repositório traduzindo violação de índice único para
+  `DomainException`.**~~ **Resolvido** em `RepositorioUsuariosEfCore.Criar`,
+  que trata os erros 2601/2627 do SQL Server quando vêm do índice
+  `IX_Usuarios_Email`.
+- ~~**Prova no banco de que duas contas com a mesma senha têm hashes
+  diferentes.**~~ **Resolvido** na seção "Semana 7: Registro de usuário".
+  
+## Semana 7: Registro de usuário — endpoint, seed do Admin e hashes distintos no banco
+
+### O que se quer provar
+
+`POST /api/usuarios` cria um usuário com a senha já em hash, e a resposta não
+carrega o hash. Duas contas registradas com **a mesma senha** têm hashes
+diferentes gravados no banco — a prova de salt pedida pela issue, agora contra
+a tabela real e não só em memória.
+
+O Admin inicial nasce de uma migration que lê a senha de uma variável de
+ambiente; nenhuma senha aparece no código.
+
+Endpoint em `src/Mobilidade.Api/Controllers/UsuarioController.cs`. DTOs em
+`src/Mobilidade.Api/Dtos/`. Migration
+`20260923225151_SeedUsuarioAdmin`.
+
+### Seed do Admin — senha de variável de ambiente
+
+A migration não grava senha nenhuma: ela lê `ADMIN_SENHA_INICIAL` do ambiente,
+calcula o hash pelo mesmo `HasherDeSenhaPbkdf2` que a aplicação usa, e insere o
+resultado. Sem a variável definida, a migration falha em vez de criar um admin
+com senha vazia ou previsível:
+
+```csharp
+var senha = Environment.GetEnvironmentVariable("ADMIN_SENHA_INICIAL");
+
+if (string.IsNullOrWhiteSpace(senha))
+    throw new InvalidOperationException(
+        "A variável de ambiente ADMIN_SENHA_INICIAL não está definida...");
+
+var admin = Usuario.Registrar(
+    Email.Criar("admin@mobilidade.local"), senha, Papel.Admin, new HasherDeSenhaPbkdf2());
+
+migrationBuilder.InsertData(
+    table: "Usuarios",
+    columns: new[] { "Email", "SenhaHash", "Papel" },
+    values: new object[] { admin.Email.Valor, admin.SenhaHash, admin.Papel.Nome });
+```
+
+Definindo a variável e aplicando:
+
+```bash
+set ADMIN_SENHA_INICIAL=<senha definida fora do repositório>
+dotnet ef database update --project src/Mobilidade.Infrastructure --startup-project src/Mobilidade.Api --connection "Server=localhost,1433;Database=MobilidadeDb;User Id=sa;Password=SuaSenhaAqui;TrustServerCertificate=True"
+```
+
+**SQL executado:**
+```
+Applying migration '20260923225151_SeedUsuarioAdmin'.
+
+INSERT INTO [Usuarios] ([Email], [SenhaHash], [Papel])
+VALUES (N'admin@mobilidade.local', N'AQAAAAIAAYagAAAAEGcZVLeAG0EP...', N'Admin');
+
+INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+VALUES (N'20260923225151_SeedUsuarioAdmin', N'10.0.11');
+Done.
+```
+
+> Hash truncado nesta evidência. O `InsertData` do EF emite o valor literal no
+> SQL, então o hash completo aparece no log de quem aplica a migration — hash
+> não é senha, mas é consequência da escolha de semear pela migration.
+
+### Falha de conexão da API rodando fora do Docker
+
+Primeira chamada ao endpoint respondeu 500. O log da API mostrou o mesmo
+erro 11001 da seção anterior:
+
+```
+fail: Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddleware[1]
+      Microsoft.Data.SqlClient.SqlException (0x80131904): Erro de rede ou
+      específico à instância ao estabelecer conexão com o SQL Server.
+      (provider: Provedor de TCP, error: 0 - Este host não é conhecido.)
+       ---> System.ComponentModel.Win32Exception (11001): Este host não é conhecido.
+         at Mobilidade.Infrastructure.Repositorio.RepositorioUsuariosEfCore.Criar(Usuario usuario)
+         at Mobilidade.Api.Controllers.UsuariosController.Criar(CriarUsuarioRequest request)
+Error Number:11001,State:0,Class:20
+```
+
+`dotnet run` sobe em ambiente Development e lê o `appsettings.json`, que aponta
+para `Server=sqlserver,1433` — nome que só resolve dentro da rede do Compose.
+Resolvido recriando `appsettings.Development.json` com `localhost,1433`, o
+arquivo que a pendência da seção anterior apontava como ausente. Ele já consta
+no `.gitignore` (seção "Ambiente / segredos"), então a senha não entra no
+repositório.
+
+### Dois usuários com a mesma senha
+
+Ambos registrados com `"senha":"mesmasenha123"`:
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"mesmasenha123\",\"papel\":\"Operador\"}"
+```
+
+```
+HTTP/1.1 201 Created
+Content-Type: application/json; charset=utf-8
+Location: http://localhost:5041/api/Usuarios?id=2
+
+{"id":2,"email":"joao@teste.com","papel":"Operador"}
+```
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Content-Type: application/json" -d "{\"email\":\"maria@teste.com\",\"senha\":\"mesmasenha123\",\"papel\":\"Operador\"}"
+```
+
+```
+HTTP/1.1 201 Created
+Content-Type: application/json; charset=utf-8
+Location: http://localhost:5041/api/Usuarios?id=3
+
+{"id":3,"email":"maria@teste.com","papel":"Operador"}
+```
+
+As duas respostas trazem `id`, `email` e `papel`. **Nenhuma traz `senhaHash`** —
+o `UsuarioResponse` não tem esse campo, então ele não pode escapar por
+serialização acidental do agregado.
+
+### Os hashes no banco — mesma senha, hashes diferentes
+
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "SuaSenhaAqui" -d MobilidadeDb -C -Q "SELECT Id, Email, SenhaHash, Papel FROM Usuarios"
+```
+
+**Saída (hashes truncados após os 40 primeiros caracteres):**
+```
+Id   Email                     SenhaHash                                   Papel
+---- ------------------------- ------------------------------------------- ---------
+ 1   admin@mobilidade.local    AQAAAAIAAYagAAAAEGcZVLeAG0EPx6OnccaBfguw... Admin
+ 2   joao@teste.com            AQAAAAIAAYagAAAAELQWmkK/uOWhBqrZi1hGFwhu... Operador
+ 3   maria@teste.com           AQAAAAIAAYagAAAAEEjg4njuS/n6PBe1FrPK6WRG... Operador
+
+(3 rows affected)
+```
+
+**A leitura que importa.** Os Ids 2 e 3 foram registrados com a mesma senha.
+Os 17 primeiros caracteres (`AQAAAAIAAYagAAAAE`) são idênticos nos três — é o
+cabeçalho do formato v3 do `PasswordHasher`, que codifica versão, algoritmo e
+número de iterações, e não depende da senha. A partir daí os valores divergem
+completamente: `LQWmkK/uOWhBqrZi1hGFwhu...` contra `Ejg4njuS/n6PBe1FrPK6WRG...`.
+
+Essa divergência é o salt aleatório gerado por chamada. Com SHA256 ou MD5 sem
+salt, as duas linhas teriam hash byte a byte idêntico, e quem lesse a tabela
+saberia que João e Maria usam a mesma senha — sem quebrar hash nenhum.
+
+### Por quê
+
+- **Seed na migration, não no start da aplicação:** é o que a issue pede, e
+  garante que o admin exista assim que o banco está migrado, sem depender de a
+  API subir. O custo é o hash literal no SQL da migration e a exigência da
+  variável de ambiente em toda aplicação — inclusive em CI, que precisaria
+  defini-la.
+- **A migration falha se a variável não existir:** seed pulado em silêncio
+  deixaria o banco sem nenhum admin, e a descoberta só viria na primeira
+  tentativa de login. Falhar cedo torna o problema visível no momento em que
+  ele acontece.
+- **`Down` deleta pelo email, não pelo Id:** o Id é `IDENTITY`, gerado pelo
+  banco, e não se conhece no momento de escrever a migration.
+- **DTO recebe `string Papel`, não o Value Object:** mesmo motivo da
+  decisão #18 — o `Papel` tem construtor privado e o `System.Text.Json` não
+  consegue materializá-lo. A conversão acontece no controller, via
+  `Papel.DeNome`, que rejeita qualquer valor fora de `Admin` e `Operador`
+  com `DomainException` (422).
+- **`UsuarioResponse` em vez de devolver o agregado:** o `IncidentesController`
+  devolve a entidade direto, e por isso a resposta dele carrega campos internos
+  como `eventos`. Para `Usuario` isso exporia `SenhaHash` em toda resposta de
+  criação. Um DTO de saída é o que garante que o hash não sai pela API.
+
+### Pendente
+
+- **`[Authorize(Roles = "Admin")]` no endpoint.** Hoje qualquer um pode chamar
+  `POST /api/usuarios` e escolher o próprio papel — inclusive `"Admin"`. É o
+  mass assignment que a Issue D cobra, e fecha na Issue C. O
+  `Papel.DeNome` impede papel *inválido*, não impede autopromoção.
+- **Rotação da senha do `sa`.** A credencial da decisão #12 foi exposta de novo
+  durante o desenvolvimento desta semana e não foi rotacionada. Dívida em
+  aberto.
+
+  ### Grep pela senha do seed — zero ocorrências
+
+```bash
+grep -rn "<senha do seed>" --include="*.cs" --include="*.json" --include="*.md" --include="*.yml" .
+```
+
+**Saída:** vazia. Nenhuma ocorrência da senha do Admin inicial em código,
+configuração, documentação ou arquivos do compose. Ela existe apenas na
+variável de ambiente `ADMIN_SENHA_INICIAL`, lida em tempo de execução pela
+migration `SeedUsuarioAdmin`, e o hash gravado no banco não permite recuperá-la.
+
+## Semana 7: Login e JWT — token assinado e 401 indistinguível
+
+### O que se quer provar
+
+`POST /api/auth/login` devolve 200 com um token assinado quando a senha
+confere. Email inexistente e senha errada devolvem **o mesmo 401, com o mesmo
+corpo** — a resposta não diz qual dos dois falhou, o que impede enumerar quais
+emails existem no sistema.
+
+O token carrega as seis claims mínimas (`sub`, `email`, `role`, `exp`, `iss`,
+`aud`), é assinado com HS256, e a chave vem de variável de ambiente.
+
+Interface `IGeradorDeToken` em `Mobilidade.Domain/Interfaces/`, implementação
+`GeradorDeTokenJwt` em `Mobilidade.Infrastructure/Seguranca/`. Endpoint em
+`Mobilidade.Api/Controllers/AuthController.cs`.
+
+### A chave nunca está no código
+
+```csharp
+var chave = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Chave"]!));
+var credenciais = new SigningCredentials(chave, SecurityAlgorithms.HmacSha256);
+```
+
+O código conhece apenas o **nome** da configuração. O valor vem da variável de
+ambiente `Jwt__Chave` (o duplo underscore é como o ASP.NET mapeia a hierarquia
+`Jwt:Chave` para variáveis de ambiente), definida fora do repositório. O mesmo
+vale para `Jwt__Emissor` e `Jwt__Audiencia`.
+
+### Login com a senha certa — 200 com token
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"mesmasenha123\"}"
+```
+
+```
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+
+{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJPcGVyYWRvciIsImV4cCI6MTc5MDI1NTU0NCwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.<assinatura truncada>"}
+```
+
+### O token decodificado, com as três partes separadas
+
+**Cabeçalho** (`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9`):
+```json
+{"alg":"HS256","typ":"JWT"}
+```
+
+**Corpo** (`eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUi...`):
+```json
+{
+  "sub": "2",
+  "email": "joao@teste.com",
+  "role": "Operador",
+  "exp": 1790255544,
+  "iss": "painel-mobilidade",
+  "aud": "painel-mobilidade"
+}
+```
+
+**Assinatura:** truncada nesta evidência. É o HMAC-SHA256 do cabeçalho mais o
+corpo, calculado com a chave que só o servidor conhece.
+
+As seis claims exigidas estão presentes. O corpo é legível por qualquer um —
+base64 não é criptografia, é codificação. O que protege o token não é esconder
+o conteúdo, é a assinatura.
+
+### Dois logins do mesmo usuário geram tokens diferentes
+
+Primeira chamada, às 12:42:23:
+```
+{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJPcGVyYWRvciIsImV4cCI6MTc5MDI1NTU0NCwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.Mw2RM2MAjATWwu<truncada>"}
+```
+
+Segunda chamada, às 12:49:31:
+```
+{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJPcGVyYWRvciIsImV4cCI6MTc5MDI1NTk3MSwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.oDl2cFS8C0oi3m<truncada>"}
+```
+
+**Por que diferem.** O cabeçalho é idêntico nos dois. No corpo, a **única**
+claim que mudou foi o `exp`: `1790255544` contra `1790255971` — 427 segundos
+de diferença, exatamente o intervalo entre as duas requisições (12:42:23 e
+12:49:31). `sub`, `email`, `role`, `iss` e `aud` são iguais.
+
+Não há aleatoriedade envolvida: o `exp` é calculado no momento da emissão com
+`DateTime.UtcNow.AddMinutes(30)`. Dois logins **no mesmo segundo** produziriam
+tokens byte a byte idênticos, porque as claims e a chave seriam as mesmas. Isso
+é o oposto do hash de senha, onde o salt aleatório garante saídas distintas
+mesmo para entradas iguais.
+
+A assinatura, porém, mudou **inteira** — não apenas na parte correspondente ao
+`exp`. Essa é a propriedade do HMAC que a Issue D vai explorar: alterar um único
+caractere da entrada produz uma saída completamente diferente, e é por isso que
+um token com a claim `role` adulterada não sobrevive à validação.
+
+### Senha errada — 401
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"senhaerrada999\"}"
+```
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"mensagem":"Email ou senha inválidos."}
+```
+
+### Email inexistente — 401 idêntico
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"naoexiste@teste.com\",\"senha\":\"mesmasenha123\"}"
+```
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"mensagem":"Email ou senha inválidos."}
+```
+
+**As duas respostas são idênticas** em status, cabeçalhos e corpo. Um atacante
+que mande mil emails ao endpoint não consegue separar os que existem dos que
+não existem a partir da resposta.
+
+### `try/catch` no login: exceção deliberada à decisão #20
+
+`Email.Criar` lança `DomainException` para email malformado, e o
+`DomainExceptionFilter` traduziria isso para **422**. No login isso abriria um
+terceiro comportamento observável:
+
+| Entrada | Sem o `try/catch` | Com o `try/catch` |
+|---|---|---|
+| `"abc"` (malformado) | 422 | 401 |
+| `naoexiste@teste.com` | 401 | 401 |
+| senha errada | 401 | 401 |
+
+O 422 diria ao atacante que aquele valor nem chegou a ser consultado — outra
+forma de vazar informação. Por isso o controller captura a exceção no ponto:
+
+```csharp
+Email email;
+try
+{
+    email = Email.Criar(request.Email);
+}
+catch (DomainException)
+{
+    return Unauthorized(new { mensagem = "Email ou senha inválidos." });
+}
+```
+
+A decisão #20 removeu os `try/catch` dos controllers justamente para não
+depender de disciplina. Este é uma exceção consciente: o login é o único
+endpoint que precisa **achatar** todos os erros num único status, e isso é o
+oposto do que o filtro global faz, que é distinguir tipos de erro.
+
+### Bug encontrado: chave ausente só falha no primeiro login
+
+O primeiro teste do endpoint respondeu 500. O log:
+
+```
+fail: Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddleware[1]
+      System.ArgumentNullException: Value cannot be null. (Parameter 's')
+         at System.Text.Encoding.GetBytes(String s)
+         at Mobilidade.Infrastructure.Seguranca.GeradorDeTokenJwt.Gerar(Usuario usuario)
+            in GeradorDeTokenJwt.cs:line 29
+         at Mobilidade.Api.Controllers.AuthController.Login(LoginRequest request)
+            in AuthController.cs:line 46
+```
+
+A variável `Jwt__Chave` estava definida em outra janela do terminal, não na que
+subiu a API. `_config["Jwt:Chave"]` devolveu `null` e o `GetBytes` estourou.
+
+O `!` (null-forgiving) na linha 29 é uma promessa ao compilador, não uma
+verificação em runtime — ele silencia o aviso e não impede nada.
+
+**Dívida identificada:** a aplicação sobe normalmente sem a chave e só quebra
+na primeira tentativa de login, com 500 e sem mensagem útil ao cliente. O
+correto seria validar a configuração na inicialização e falhar ali, como a
+migration `SeedUsuarioAdmin` faz com `ADMIN_SENHA_INICIAL`. Registrado como
+pendência.
+
+### Por quê
+
+- **Claim `role` no nome curto, não `ClaimTypes.Role`:** o `ClaimTypes.Role` do
+  .NET expande para a URI
+  `http://schemas.microsoft.com/ws/2008/06/identity/claims/role`, que é o que
+  aparecia no token na primeira versão. A issue pede `role`, e o token fica
+  menor e mais legível. O custo é que a validação da Issue C precisa declarar
+  `RoleClaimType = "role"` — sem isso, `[Authorize(Roles = "Admin")]` procura
+  pela URI, não encontra, e devolve 403 até para quem é Admin.
+- **Expiração de 30 minutos:** meio do intervalo permitido pela issue (15 a
+  60). Um token roubado vale por no máximo meia hora; menos que isso obrigaria
+  reautenticação frequente num sistema que ainda não tem refresh token.
+- **`DateTime.UtcNow`, não `DateTime.Now`:** o `exp` do JWT é definido em UTC.
+  Usar hora local faria o token expirar 3 horas fora do previsto neste fuso, e
+  o erro só apareceria em produção com outro fuso configurado.
+- **`LoginRequest` sem `[EmailAddress]` e sem `[StringLength]`:** o
+  `CriarUsuarioRequest` tem as duas anotações, mas no login elas gerariam 400
+  para entradas malformadas — um terceiro status observável, pelo mesmo motivo
+  do `try/catch` acima. O login valida tudo internamente e responde sempre 401.
+- **`LoginResponse` carrega só o token:** nada de dados do usuário na resposta.
+  Quem precisar deles lê as claims do próprio token.
+- **Chave em variável de ambiente, não em `appsettings.Development.json`:** o
+  arquivo está no `.gitignore`, mas já foi commitado por engano uma vez neste
+  repositório. Variável de ambiente não tem como ser commitada.
+
+### Pendente
+
+- **Validar a presença da chave na inicialização**, em vez de falhar no
+  primeiro login.
+- **Grep no log após login com senha errada**, provando que a senha digitada
+  não aparece — item da Issue D.
+- **Rate limiting no login.** Nada limita tentativas hoje; cem requisições
+  seguidas com senha errada são todas processadas. Item da Issue D.
+
+  ### Grep no log após login com senha errada — zero ocorrências
+
+O projeto não tem logging em arquivo configurado; o log vai para o console.
+Para poder grepá-lo, a API foi subida com a saída redirecionada:
+
+```bash
+dotnet run --project src/Mobilidade.Api > log-api.txt 2>&1
+```
+
+Login com senha deliberadamente distinta, para que qualquer ocorrência no log
+fosse inequívoca:
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"SenhaErradaParaTesteDeLog123\"}"
+```
+
+```
+HTTP/1.1 401 Unauthorized
+{"mensagem":"Email ou senha inválidos."}
+```
+
+Grep pela senha digitada:
+
+```bash
+grep -n "SenhaErradaParaTesteDeLog123" log-api.txt
+```
+
+**Saída:** vazia.
+
+Confirmação de que o arquivo não está vazio — sem isso, o grep vazio não
+provaria nada:
+
+```bash
+grep -c "" log-api.txt
+```
+
+```
+21
+```
+
+**Por que a senha não aparece.** Ela entra no `LoginRequest`, é passada a
+`usuario.SenhaConfere` e descartada. Não há `_logger` no `AuthController`, e a
+`DomainException` capturada no `try/catch` carrega a mensagem do domínio
+("Email em formato inválido"), nunca o valor digitado. As mensagens de
+validação do `Usuario.Registrar` seguem a mesma regra: dizem a regra violada,
+não o valor.
+
+## Semana 7: Autorização por papel — 401 contra 403 e negado por padrão
+
+### O que se quer provar
+
+Sem token, o servidor não sabe quem é: **401**. Com token válido mas papel
+insuficiente, ele sabe quem é e sabe que não pode: **403**. São respostas
+diferentes porque as perguntas são diferentes — autenticação é "quem é você",
+autorização é "o que você pode fazer".
+
+Endpoints sem `[Authorize]` explícito ficam **negados por padrão**, não
+abertos: a política de fallback exige usuário autenticado em qualquer rota que
+não tenha declarado o contrário.
+
+Configuração em `src/Mobilidade.Api/Program.cs`. Atributos em
+`IncidentesController.cs` e `UsuarioController.cs`.
+
+### As quatro validações do token
+
+```csharp
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Chave"]!)),
+
+            ValidateIssuer = true,
+            ValidIssuer = builder.Configuration["Jwt:Emissor"],
+
+            ValidateAudience = true,
+            ValidAudience = builder.Configuration["Jwt:Audiencia"],
+
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero,
+
+            RoleClaimType = "role"
+        };
+    });
+```
+
+Cada validação tem um par: o `Validate...` que liga a checagem, e o `Valid...`
+(ou `IssuerSigningKey`) que diz contra o quê comparar. Assinatura, emissor,
+audiência e expiração — as quatro exigidas pela issue.
+
+`ClockSkew = TimeSpan.Zero` remove a tolerância padrão do .NET, que é de 5
+minutos. Sem isso, um token expirado continuaria sendo aceito por mais cinco
+minutos, e o ataque de token expirado da Issue D não provaria nada.
+
+### Negado por padrão
+
+```csharp
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+```
+
+A `FallbackPolicy` vale para toda rota que **não** declara sua própria política.
+Um endpoint novo criado amanhã sem `[Authorize]` nasce fechado, não aberto.
+
+O custo é que login e health também ficariam trancados, e por isso ambos têm
+`[AllowAnonymous]` (no controller) e `.AllowAnonymous()` (no minimal API do
+`/health`). O `/api/incidentes/importar` e o `/api/debug/sql` foram
+deliberadamente **deixados sem** a liberação: passam a exigir token
+autenticado, que é o comportamento correto para um endpoint de escrita e para
+um que expõe estrutura interna.
+
+### Ordem dos middlewares
+
+```csharp
+app.UseExceptionHandler();
+app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+```
+
+`UseAuthentication` antes de `UseAuthorization`, e ambos antes de
+`MapControllers`. O primeiro lê o token e monta a identidade; o segundo decide
+se aquela identidade pode acessar o recurso. Invertidos, o segundo rodaria
+antes de existir identidade e trataria todo mundo como anônimo — 401 em tudo,
+inclusive com token válido.
+
+### A tabela
+
+Cada célula é uma requisição real feita com `curl` contra a API em
+`http://localhost:5041`, com o banco real. Comando usado para capturar apenas
+o status:
+
+```bash
+curl -s -o nul -w "GET /Incidentes -> %{http_code}\n" http://localhost:5041/api/Incidentes -H "Authorization: Bearer %OP%"
+```
+
+| Endpoint | Sem token | Operador | Admin |
+|---|---|---|---|
+| `GET /api/Incidentes` | **401** | **200** | **200** |
+| `GET /api/Incidentes/2` | **401** | **200** | **200** |
+| `GET /api/Incidentes/bairro/1` | **401** | **200** | **200** |
+| `POST /api/Incidentes` | **401** | **403** | **201** |
+| `DELETE /api/Incidentes/999` | **401** | **403** | **404** |
+| `POST /api/Usuarios` | **401** | **403** | **201** |
+
+**Como ler.** A coluna "sem token" é uniformemente 401: sem identidade, o
+servidor não tem o que autorizar. A coluna do Operador separa leitura de
+escrita — 200 nas três consultas, 403 nas três operações de escrita. A coluna
+do Admin passa em tudo.
+
+O **404** do Admin no `DELETE /api/Incidentes/999` é resultado positivo: o
+incidente 999 não existe, e o 404 só pode ter vindo do controller. Ou seja, a
+autorização liberou e o código rodou. Um 403 ali indicaria que o Admin nem
+chegou ao método.
+
+### Operador tentando abrir incidente — requisição e resposta completas
+
+```bash
+curl -i -X POST http://localhost:5041/api/Incidentes -H "Authorization: Bearer <token do Operador>" -H "Content-Type: application/json" -d "{\"dataHora\":\"2026-09-24T10:00:00\",\"tipo\":0,\"severidade\":2,\"bairroId\":1,\"orgaoResponsavel\":\"Teste\",\"situacao\":\"Em analise\"}"
+```
+
+Token usado (assinatura truncada), com `"role":"Operador"` no corpo:
+
+```
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJPcGVyYWRvciIsImV4cCI6MTc5MDI2NDU5MywiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.<truncada>
+```
+
+**Resposta:**
+```
+HTTP/1.1 403 Forbidden
+Content-Length: 0
+Server: Kestrel
+```
+
+Corpo vazio, e isso é deliberado do ASP.NET: o 403 não explica qual papel
+seria necessário. Informar "este endpoint exige Admin" diria ao atacante
+exatamente o que ele precisa obter.
+
+O incidente **não** foi criado — o método `Criar` do controller nunca executou,
+porque o middleware de autorização interrompeu a requisição antes.
+
+### Bug encontrado: `RoleClaimType` sozinho não bastou
+
+Com `RoleClaimType = "role"` configurado e um token de Admin legítimo, o
+`DELETE` respondia **403**:
+
+```bash
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer <token do Admin>"
+```
+
+```
+HTTP/1.1 403 Forbidden
+Content-Length: 0
+```
+
+O token estava correto — corpo com `"sub":"5"`, `"email":"admin@mobilidade.local"`,
+`"role":"Admin"` — e a assinatura era válida, senão a resposta teria sido 401.
+
+**A causa.** O handler do JWT Bearer, por padrão, traduz nomes curtos de claim
+para as URIs longas da Microsoft ao construir a identidade
+(`MapInboundClaims = true` é o padrão). Então o `role` do token virava
+`http://schemas.microsoft.com/ws/2008/06/identity/claims/role` na identidade, e
+o `RoleClaimType = "role"` mandava o `[Authorize]` procurar por uma claim
+`role` que já tinha sido renomeada. Nenhum papel encontrado, logo 403.
+
+A decisão #33 previu que trocar `ClaimTypes.Role` pelo nome curto exigiria
+`RoleClaimType = "role"` — o que não estava previsto é que essa linha sozinha
+não resolve, porque o mapeamento acontece **antes** dela.
+
+**A correção**, uma linha:
+
+```csharp
+options.MapInboundClaims = false;
+```
+
+Com ela, o nome da claim chega como está no token, e o `RoleClaimType` encontra.
+Depois de reiniciar a API, o mesmo `DELETE` respondeu **404** — autorização
+liberada, controller executado, incidente inexistente.
+
+### Por quê
+
+- **403 com corpo vazio, não com mensagem explicativa:** dizer qual papel falta
+  é dar ao atacante o mapa do que precisa obter. O 403 confirma que o token é
+  válido — isso já é informação suficiente para quem tem direito de estar ali.
+- **`FallbackPolicy` em vez de `[Authorize]` no controller inteiro:** um
+  `[Authorize]` na classe protegeria os métodos existentes, mas não um
+  controller novo criado depois. A política de fallback é estrutural: vale para
+  tudo que não declarar o contrário, inclusive minimal APIs.
+- **`[AllowAnonymous]` só no login e no health:** o login não pode exigir token,
+  porque é ele que emite tokens; o health precisa responder a um orquestrador
+  que não tem credencial. Qualquer outro endpoint liberado seria decisão a
+  justificar, não padrão.
+- **Atributos por método, não por controller:** o `IncidentesController` tem
+  leitura e escrita no mesmo arquivo, com papéis diferentes. Um atributo na
+  classe forçaria o menor denominador comum, e as escritas ficariam abertas
+  para Operador.
+- **`ClockSkew = TimeSpan.Zero`:** a tolerância padrão de 5 minutos existe para
+  compensar relógios dessincronizados entre servidores. Aqui há um servidor só,
+  e a tolerância só serviria para tornar a expiração imprecisa — e o ataque de
+  token expirado, inconclusivo.
+
+### Pendente
+
+- **Testes de integração para as 9 células que retornam 401 ou 403.** O projeto
+  não tem infraestrutura de teste de integração HTTP (`WebApplicationFactory`),
+  limitação já registrada na decisão #23. A tabela acima é prova por requisição
+  real, não automatizada.
+
+  ## Semana 7: Dívida da Semana 6 — `RegistrarIncidenteAberto()` sem guarda
+
+### O que se quer provar
+
+Na sabatina da Semana 6 ficou registrado que `RegistrarIncidenteAberto()` era
+público e sem guarda: chamá-lo antes da persistência gravava um evento
+`IncidenteAberto` com `IncidenteId = 0`, sem erro nenhum. Isso contradizia a
+decisão #4, que fechou o construtor de `Incidente` justamente para tornar a
+invariante estrutural em vez de comportamental.
+
+A guarda escolhida (decisão #36) verifica o `Id` antes de construir o evento.
+O ciclo abaixo prova que o teste detecta a **ausência** da guarda, e não passa
+por acaso.
+
+### A guarda
+
+```csharp
+public void RegistrarIncidenteAberto()
+{
+    if (Id == 0)
+    {
+        throw new DomainException("O incidente precisa ter um ID válido antes de gerar o evento.");
+    }
+
+    var incidenteAberto = new IncidenteAberto(Id, Severidade, Periodo.Inicio);
+    _eventos.Add(incidenteAberto);
+}
+```
+
+A verificação vem **antes** do `new IncidenteAberto(...)`. Um evento com
+`IncidenteId = 0` não chega a existir nem em memória.
+
+### O teste
+
+```csharp
+[Fact]
+public void RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero()
+{
+    var incidente = Incidente.Abrir(DateTime.UtcNow, Severidade.Alta, 1, "teste", "Defesa Civil", "Em analise");
+
+    Assert.Throws<DomainException>(() => incidente.RegistrarIncidenteAberto());
+}
+```
+
+O cenário não precisa ser forçado: `Incidente.Abrir` cria o agregado em
+memória, sem passar pelo banco, então o `Id` nasce `0` — exatamente a condição
+que a guarda existe para barrar.
+
+### Comando
+
+```bash
+dotnet test --filter IncidenteTests
+```
+
+### 1. Com a guarda ativa — passa
+
+```
+[xUnit.net 00:00:00.96]   Starting:    Mobilidade.Tests
+[xUnit.net 00:00:01.03]   Finished:    Mobilidade.Tests
+  Mobilidade.Tests teste net10.0 êxito (1,9s)
+
+Resumo do teste: total: 12; falhou: 0; bem-sucedido: 12; ignorado: 0; duração: 1,9s
+```
+
+### 2. Com o `if` e o `throw` comentados — falha
+
+Trecho comentado em `Incidente.cs`:
+
+```csharp
+/*if (Id == 0) 
+{
+    throw new DomainException("O incidente precisa ter um ID válido antes de gerar o evento.");
+}*/
+```
+
+Saída:
+
+```
+[xUnit.net 00:00:00.29]     Mobilidade.Tests.IncidenteTests.RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero [FAIL]
+[xUnit.net 00:00:00.29]       Assert.Throws() Failure: No exception was thrown
+[xUnit.net 00:00:00.29]       Expected: typeof(Mobilidade.Domain.Excecoes.DomainException)
+[xUnit.net 00:00:00.29]       Stack Trace:
+[xUnit.net 00:00:00.29]         IncidenteTests.cs(121,0): at Mobilidade.Tests.IncidenteTests.RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero()
+
+Resumo do teste: total: 12; falhou: 1; bem-sucedido: 11; ignorado: 0; duração: 1,2s
+```
+
+**A leitura que importa.** Falhou **um** teste, e foi exatamente o da guarda.
+Os outros 11 continuaram passando — isso confirma que o teste mede essa
+invariante específica, e não um efeito colateral de outra regra.
+
+Sem a guarda, o evento foi criado normalmente com `IncidenteId = 0`: nenhuma
+exceção, nenhum aviso, e um registro de auditoria apontando para um incidente
+que não existe no banco.
+
+### 3. Com a guarda restaurada — passa de novo
+
+```
+[xUnit.net 00:00:00.17]   Starting:    Mobilidade.Tests
+[xUnit.net 00:00:00.26]   Finished:    Mobilidade.Tests
+  Mobilidade.Tests teste net10.0 êxito (1,2s)
+
+Resumo do teste: total: 12; falhou: 0; bem-sucedido: 12; ignorado: 0; duração: 1,2s
+```
+
+> Saídas cortadas: removidos os avisos de build (NU1903, CS8618) e a lista de
+> projetos compilados, que se repetem nas três execuções.
+
+### Tentativa descartada no caminho: comentar a guarda errada
+
+Na primeira tentativa do ciclo, o trecho comentado foi o do `Encerrar()`, não o
+do `RegistrarIncidenteAberto()`. O resultado:
+
+```
+Mobilidade.Tests.IncidenteTests.Encerrar_QuandoIncidenteJaEstiverEncerrado_LancaDomainException [FAIL]
+Mobilidade.Tests.IncidenteTests.Encerrar_QuandoJaEstaEncerrado_NaoAdicionaSegundoEventoNaLista [FAIL]
+
+Resumo do teste: total: 12; falhou: 2; bem-sucedido: 10
+```
+
+Dois testes falharam, e **nenhum deles** era o da guarda em questão — o
+`RegistrarIncidenteAberto_DeveLancarExcecao_QuandoIdForZero` continuou passando,
+porque a guarda dele não tinha sido tocada.
+
+Vale registrar porque mostra o que o ciclo de fato verifica: não basta que
+*algum* teste falhe ao comentar *alguma* regra. O que prova a ligação entre
+guarda e teste é **qual** teste falha.
+
+### Por quê
+
+- **A guarda antes da construção do evento, não depois:** verificar o `Id`
+  depois de `new IncidenteAberto(...)` deixaria o evento inválido existir em
+  memória, ainda que por um instante. A decisão #5 rejeitou esse padrão no
+  `Severidade` — valor inválido que existe e depende de alguém corrigir não é
+  invariante.
+- **`DomainException`, não `InvalidOperationException`:** é violação de regra
+  de domínio, e o `DomainExceptionFilter` já traduz para 422 (decisão #19).
+- **O teste não força o `Id` para zero:** ele usa o estado natural de um
+  agregado recém-criado. Um teste que atribuísse `Id = 0` artificialmente
+  provaria menos, porque testaria um cenário construído em vez do cenário real
+  de chamada na ordem errada.
+- **A guarda melhora o modo de falha, não elimina a falha:** um caso de uso que
+  esqueça de chamar `RegistrarIncidenteAberto()` continua compilando. O que
+  mudou é que chamá-lo na hora errada agora falha alto, em vez de gravar um
+  evento apontando para o incidente de Id 0 (decisão #36).
+
+  ## Semana 7 — Ataques: Issue D
+
+Cada ataque segue quatro partes: o que o atacante tenta, a requisição real, a
+resposta real, e o que impediu.
+
+Todos os tokens têm a assinatura truncada ou são inválidos por construção —
+nenhum token legítimo e válido aparece inteiro nesta seção.
+
+---
+
+### Ataque 1 — Alterar a claim de papel no token
+
+**O que o atacante tenta**
+
+Um Operador autenticado quer poderes de Admin. Ele já tem um token válido, faz
+login normalmente, e a claim `role` do próprio token diz `Operador`. A ideia é
+editar essa claim para `Admin` e reenviar — o corpo do JWT é base64, legível e
+editável por qualquer um, sem chave nenhuma.
+
+**A manipulação**
+
+O token do Operador foi colado no jwt.io e a claim `"role": "Operador"` foi
+trocada por `"role": "Admin"` no payload. O site reescreve o token com o corpo
+novo, mas recalcula a assinatura com a chave que está no próprio site — que não
+é a chave secreta do servidor.
+
+Corpo do token adulterado, decodificado:
+
+```json
+{
+  "sub": "2",
+  "email": "joao@teste.com",
+  "role": "Admin",
+  "exp": 1790269859,
+  "iss": "painel-mobilidade",
+  "aud": "painel-mobilidade"
+}
+```
+
+`role` agora diz `Admin`. Todo o resto — `sub`, `email`, `exp` — é do Operador.
+
+**A requisição**
+
+Token adulterado enviado a um endpoint que exige Admin:
+
+```bash
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJqb2FvQHRlc3RlLmNvbSIsInJvbGUiOiJBZG1pbiIsImV4cCI6MTc5MDI2OTg1OSwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.<assinatura forjada>"
+```
+
+**A resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Length: 0
+Server: Kestrel
+WWW-Authenticate: Bearer error="invalid_token", error_description="The signature key was not found"
+```
+
+**O que impediu**
+
+A assinatura. Um JWT tem três partes: cabeçalho, corpo e assinatura, separadas
+por ponto. A assinatura é o HMAC-SHA256 de `cabeçalho.corpo`, calculado com uma
+chave que só o servidor conhece.
+
+Quando o atacante mudou o corpo, o `cabeçalho.corpo` mudou junto. A assinatura
+que acompanhava o token original foi calculada sobre o corpo antigo (`Operador`)
+e não vale mais para o corpo novo (`Admin`). O jwt.io até gerou uma assinatura
+nova, mas com a chave errada — ele não tem a do servidor.
+
+Na chegada, o servidor recalcula o HMAC do corpo recebido com a **sua** chave e
+compara com a assinatura recebida. Não bate. A requisição é rejeitada com 401 na
+validação da assinatura, **antes** de qualquer checagem de papel. O
+`error_description="The signature key was not found"` é exatamente esse ponto:
+a assinatura não corresponde a nenhuma chave que o servidor aceite.
+
+Essa é a propriedade do HMAC provada na Parte 2 (dois logins, assinaturas
+completamente diferentes): mudar um único caractere da entrada produz uma
+assinatura totalmente diferente, e forjá-la exige a chave. Sem a chave, editar o
+corpo é inútil.
+
+**O contraste que fecha a prova**
+
+A mesma requisição, ao mesmo endpoint, com o token **original** do Operador —
+sem adulteração, assinatura legítima:
+
+```bash
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer  eyJ...role Operador...NhPS30ya<truncada>"
+```
+
+```
+HTTP/1.1 403 Forbidden
+Content-Length: 0
+Server: Kestrel
+```
+
+**401 contra 403, e a diferença é tudo:**
+
+| Token | `role` | Assinatura | Resposta | Barrado por |
+|---|---|---|---|---|
+| adulterado | `Admin` | inválida | **401** | validação da assinatura |
+| original | `Operador` | válida | **403** | autorização (papel) |
+
+O token adulterado nunca chega a ser avaliado quanto ao papel — morre na
+assinatura. O token original passa a assinatura (é legítimo) e só então é barrado
+pelo papel. Se o ataque tivesse dado 403, significaria que o servidor aceitou a
+assinatura forjada e só reprovou o papel — falha grave. Deu 401: a fronteira está
+no lugar certo.
+
+### Ataque 2 — SQL injection no login
+
+**O que o atacante tenta**
+
+Entrar sem senha, ou danificar o banco, mandando SQL no campo de email em vez
+de um endereço. Se a aplicação montasse a query concatenando o email digitado
+direto no texto SQL — algo como `... WHERE Email = '` + email + `'` — o
+atacante poderia fechar a aspa e injetar sua própria condição.
+
+Dois payloads clássicos: um que tenta virar uma condição sempre verdadeira para
+burlar a autenticação, e um que tenta destruir a tabela.
+
+**Requisição 1 — condição sempre verdadeira**
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"admin@mobilidade.local' OR '1'='1\",\"senha\":\"qualquercoisa\"}"
+```
+
+**Resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"mensagem":"Email ou senha inválidos."}
+```
+
+**Requisição 2 — tentativa de dropar a tabela**
+
+```bash
+curl -i -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"x'; DROP TABLE Usuarios; --\",\"senha\":\"qualquercoisa\"}"
+```
+
+**Resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+
+{"mensagem":"Email ou senha inválidos."}
+```
+
+**A tabela sobreviveu**
+
+Se o `DROP TABLE` tivesse executado, esta consulta falharia com "Invalid object
+name 'Usuarios'". Rodada logo após os dois ataques:
+
+```bash
+docker exec -it mobilidade-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "<senha do sa>" -d MobilidadeDb -C -Q "SELECT Id, Email, Papel FROM Usuarios"
+```
+
+```
+Id   Email                      Papel
+---- -------------------------- --------
+ 2   joao@teste.com             Operador
+ 3   maria@teste.com            Operador
+ 5   admin@mobilidade.local     Admin
+ 6   criadopeloadmin@teste.com  Operador
+
+(4 rows affected)
+```
+
+Os quatro usuários continuam lá. Nenhum comando do payload tocou no banco.
+
+**O que impediu — duas barreiras, e a primeira já basta**
+
+**Primeira barreira: o `Email` como Value Object.** Antes de qualquer consulta,
+o login chama `Email.Criar(request.Email)`. Esse método valida o formato com
+`MailAddress.TryCreate` e exige que o valor normalizado seja idêntico a um
+endereço válido. `admin@mobilidade.local' OR '1'='1` e `x'; DROP TABLE Usuarios; --`
+têm aspas, espaços e ponto-e-vírgula — não são emails válidos, então
+`Email.Criar` lança `DomainException`, que o `try/catch` do login (decisão #32)
+transforma em 401. A consulta ao banco **nunca acontece**: o payload é rejeitado
+na fronteira do domínio.
+
+**Segunda barreira: consulta parametrizada.** Mesmo que a validação de email não
+existisse, o `BuscarPorEmail` do repositório usa LINQ:
+
+```csharp
+_contexto.Usuarios.FirstOrDefault(u => u.Email == email);
+```
+
+O EF Core traduz isso para uma query com **parâmetro**, não concatenação:
+
+```sql
+SELECT ... FROM [Usuarios] AS [u] WHERE [u].[Email] = @__email_0
+```
+
+O valor digitado, inteiro, vai no `@__email_0` como um literal de texto. O banco
+compara a coluna `Email` com a string `x'; DROP TABLE Usuarios; --` procurando
+um registro cujo email seja **exatamente** esse texto — aspas e tudo. Não
+existe, retorna nada, e o login responde 401. O SQL do payload é dado, nunca
+comando.
+
+**Por que duas barreiras e não uma**
+
+A validação de email barra esses payloads hoje, mas é a defesa da porta errada
+para este ataque: ela existe para garantir emails válidos, não para conter
+injection. Se amanhã um campo diferente — que aceita texto livre, como uma
+descrição ou um filtro de busca — chegasse ao banco, a validação de email não
+protegeria nada. A parametrização do EF Core é a defesa estrutural: vale para
+todo campo que vira query, sem depender de cada um ter sua própria validação de
+formato. As duas juntas são defesa em profundidade; a segunda é a que
+generaliza.
+
+**Dívida relacionada**
+
+O sistema não tem consulta que monte SQL por concatenação de string em lugar
+nenhum — tudo passa por LINQ ou por parâmetro (as migrations que usam
+`migrationBuilder.Sql` com valores dinâmicos, como o seed do Admin, usam
+`InsertData` parametrizado, decisão #35). Não há SQL cru concatenado a auditar.
+
+### Ataque 3 — Mass assignment: autopromoção a Admin no cadastro
+
+**O que o atacante tenta**
+
+O endpoint `POST /api/usuarios` aceita um campo `papel` no corpo. O ataque de
+mass assignment é usar esse campo para se dar um papel que não deveria — criar
+uma conta já como `Admin`, sem que ninguém autorize. É o furo que o
+`UsuarioController` carregava de propósito até esta issue: o comentário no
+código dizia "qualquer um pode chamá-lo e escolher o próprio papel".
+
+O ataque tem duas frentes: quem pode **chamar** o endpoint, e quais papéis pode
+**atribuir**. As duas precisam estar fechadas.
+
+**Frente 1 — quem pode chamar**
+
+Sem token, tentando criar um Admin:
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Content-Type: application/json" -d "{\"email\":\"invasor@teste.com\",\"senha\":\"senha12345\",\"papel\":\"Admin\"}"
+```
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Length: 0
+WWW-Authenticate: Bearer
+```
+
+Com token de **Operador**, a autopromoção clássica — um usuário de papel baixo
+tentando criar uma conta de papel alto:
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Authorization: Bearer <token do Operador>" -H "Content-Type: application/json" -d "{\"email\":\"invasor@teste.com\",\"senha\":\"senha12345\",\"papel\":\"Admin\"}"
+```
+
+```
+HTTP/1.1 403 Forbidden
+Content-Length: 0
+```
+
+O `[Authorize(Roles = "Admin")]` no endpoint barra os dois: sem identidade, 401;
+com identidade de Operador, 403. O método `Criar` do controller nunca executa,
+então nenhuma conta é criada. Um Operador **não pode criar usuário nenhum** —
+nem Admin, nem outro Operador.
+
+**Frente 2 — quais papéis podem ser atribuídos**
+
+Mesmo um Admin legítimo, autorizado a criar contas, não pode inventar um papel
+fora da lista fechada. Com token de **Admin**, tentando criar um `SuperAdmin`:
+
+```bash
+curl -i -X POST http://localhost:5041/api/Usuarios -H "Authorization: Bearer <token do Admin>" -H "Content-Type: application/json" -d "{\"email\":\"teste-papel@teste.com\",\"senha\":\"senha12345\",\"papel\":\"SuperAdmin\"}"
+```
+
+```
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/problem+json; charset=utf-8
+
+{"title":"Regra de negócio violada","status":422,"detail":"Usuario Inválido"}
+```
+
+O `[Authorize]` deixa passar (é um Admin), mas na conversão do papel o
+controller chama `Papel.DeNome("SuperAdmin")`. `Papel` é um value object de lista
+fechada — só existem as instâncias `Admin` e `Operador`, com construtor privado.
+Qualquer nome fora disso lança `DomainException`, que o `DomainExceptionFilter`
+traduz para 422. Não há como materializar um papel que o domínio não declarou.
+
+**As três respostas, lado a lado**
+
+| Quem chama | Papel pedido | Resposta | Barrado por |
+|---|---|---|---|
+| sem token | `Admin` | **401** | autenticação (`FallbackPolicy`) |
+| Operador | `Admin` | **403** | autorização (`[Authorize(Roles="Admin")]`) |
+| Admin | `SuperAdmin` | **422** | domínio (`Papel.DeNome`) |
+
+**O que impediu — duas defesas independentes**
+
+O mass assignment precisa das duas frentes fechadas, e elas são independentes:
+
+1. **`[Authorize(Roles = "Admin")]` decide quem pode chamar.** Fecha a
+   autopromoção: nenhum Operador cria contas, então nenhum Operador se eleva a
+   Admin. Esta é a defesa que a Issue C acrescentou — antes dela, o endpoint
+   estava aberto e o ataque funcionava.
+
+2. **`Papel` como value object decide o que pode ser atribuído.** Fecha a
+   invenção de papéis: nem um Admin cria um `SuperAdmin` ou um `Root`, porque
+   esses valores não existem no domínio. Esta defesa já existia desde a Parte 1
+   (decisão sobre `Papel` como lista fechada), e é o que impede escalonamento
+   *dentro* do conjunto de quem já pode criar contas.
+
+Sem a defesa 1, qualquer um se promovia. Sem a defesa 2, um Admin comprometido
+poderia criar papéis arbitrários que o resto do sistema não saberia interpretar.
+Juntas, o único papel que entra no banco é um dos dois que o domínio reconhece,
+atribuído por alguém que o `[Authorize]` deixou passar.
+
+**Observação sobre a mensagem do 422**
+
+O `detail` retornado é `"Usuario Inválido"`, genérico. A mensagem que o
+`Papel.DeNome` lança no código é mais específica (`"Papel inválido:
+'SuperAdmin'. Valores aceitos: Admin, Operador."`). Em algum ponto do caminho a
+mensagem específica está sendo achatada para a genérica — não afeta a proteção,
+mas é uma imprecisão a investigar: o cliente recebe menos informação do que o
+domínio produziu. Registrado como ponto menor.
+
+### Ataque 4 — Token forjado, assinado com outra chave
+
+**O que o atacante tenta**
+
+Diferente do Ataque 1, onde o atacante *editou* um token existente, aqui ele
+monta um do zero. Ele conhece o formato: sabe que o servidor quer `role: Admin`,
+o emissor `painel-mobilidade`, a audiência `painel-mobilidade`. Preenche tudo
+certo, e assina com uma chave secreta que ele mesmo inventou — porque a chave do
+servidor ele não tem.
+
+A pergunta que este ataque responde: **o que protege o token é o conteúdo certo,
+ou a chave certa?**
+
+**A forja**
+
+Token montado no jwt.io, com um payload de Admin impecável e `exp` em um futuro
+distante (`9999999999` = ano 2286), para que não haja como o token ser rejeitado
+por expiração — se cair, é só pela assinatura:
+
+```json
+{
+  "sub": "999",
+  "email": "atacante@teste.com",
+  "role": "Admin",
+  "exp": 9999999999,
+  "iss": "painel-mobilidade",
+  "aud": "painel-mobilidade"
+}
+```
+
+Assinado com a chave `chave-que-o-atacante-inventou` — qualquer valor que **não**
+seja a chave real do servidor.
+
+**A requisição**
+
+```bash
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5OTkiLCJlbWFpbCI6ImF0YWNhbnRlQHRlc3RlLmNvbSIsInJvbGUiOiJBZG1pbiIsImV4cCI6OTk5OTk5OTk5OSwiaXNzIjoicGFpbmVsLW1vYmlsaWRhZGUiLCJhdWQiOiJwYWluZWwtbW9iaWxpZGFkZSJ9.<assinatura com chave forjada>"
+```
+
+**A resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Length: 0
+WWW-Authenticate: Bearer error="invalid_token", error_description="The signature key was not found"
+```
+
+**O que impediu**
+
+`ValidateIssuerSigningKey = true`. Na validação, o servidor pega o cabeçalho e o
+corpo do token recebido, recalcula o HMAC-SHA256 com a **sua** chave — a que está
+em `Jwt__Chave`, na variável de ambiente — e compara com a assinatura que veio no
+token. O atacante calculou a dele com outra chave, então os dois HMACs não
+batem. Rejeitado.
+
+**Por que este ataque é diferente do Ataque 1**
+
+No Ataque 1, o token começou legítimo e foi adulterado — mostrava que **mexer**
+no conteúdo quebra a assinatura. Aqui o token nasceu falso, com conteúdo
+perfeito desde o início — mostra que **conteúdo perfeito não vale nada sem a
+chave**. São os dois lados da mesma moeda:
+
+- O corpo do JWT é público e forjável. Qualquer um escreve `role: Admin`.
+- A assinatura é o que prova que o token foi emitido por quem tem a chave.
+- Sem a chave, não há como produzir uma assinatura que o servidor aceite —
+  nem editando um token real, nem montando um do zero.
+
+É por isso que a decisão #30 (chave em variável de ambiente, nunca no código,
+nunca no repositório) é a peça central de toda a autenticação. Se a chave
+vazasse, **este ataque funcionaria**: o atacante montaria exatamente este token,
+assinaria com a chave vazada, e o servidor o aceitaria como um Admin legítimo. A
+segurança inteira do JWT se reduz ao segredo dessa única chave.
+
+**A conexão com a expiração**
+
+O `exp: 9999999999` deste ataque também prova, de passagem, que a validação não
+para na assinatura por acaso: se a assinatura tivesse batido, o servidor
+seguiria para checar emissor, audiência e expiração. Como o `exp` é válido por
+mais 260 anos, nenhuma dessas checagens barraria o token. A única coisa entre o
+atacante e o acesso de Admin era a chave — e foi ela que barrou.
+
+### Ataque 5 — Token expirado
+
+**O que o atacante tenta**
+
+Reusar um token que já foi legítimo, mas cuja validade passou. É o cenário de um
+token roubado: o atacante captura um token válido (de um log, de um proxy, de um
+dispositivo comprometido) e tenta usá-lo depois. Se o servidor não checasse a
+expiração, um token vazado valeria para sempre.
+
+**Como o token expirado foi produzido**
+
+Diferente dos ataques de assinatura, aqui o token precisa ser **legítimo** —
+assinatura verdadeira, emitida pelo próprio servidor — e apenas vencido. Um token
+editado no jwt.io não serviria: a assinatura quebraria e o servidor barraria por
+assinatura antes de olhar a validade.
+
+Para produzir a condição de forma controlada, a expiração do gerador foi
+reduzida de `AddMinutes(30)` para `AddSeconds(10)` temporariamente, a API foi
+reiniciada, um login normal gerou o token, e a requisição foi feita ~15 segundos
+depois — com o token já vencido, mas com assinatura autêntica. O gerador foi
+revertido para `AddMinutes(30)` em seguida.
+
+**A requisição**
+
+```bash
+curl -i http://localhost:5041/api/Incidentes -H "Authorization: Bearer <token legítimo, já vencido>"
+```
+
+O token, decodificado, tinha `exp: 1790276023` — um instante ~10 segundos após a
+emissão.
+
+**A resposta**
+
+```
+HTTP/1.1 401 Unauthorized
+Content-Length: 0
+WWW-Authenticate: Bearer error="invalid_token", error_description="The token expired at '09/24/2026 18:53:43'"
+```
+
+**O que impediu**
+
+`ValidateLifetime = true`, com `ClockSkew = TimeSpan.Zero`. A assinatura era
+válida — o token fora emitido pelo servidor —, então a validação passou da
+assinatura, do emissor e da audiência. Parou na expiração: o `exp` já era
+passado, e o token foi rejeitado.
+
+**A mensagem de erro é a prova mais precisa desta seção**
+
+Repare que o `error_description` é **diferente** de todos os ataques anteriores:
+
+| Ataque | `error_description` | Onde parou |
+|---|---|---|
+| Claim alterada | `The signature key was not found` | assinatura |
+| Token forjado | `The signature key was not found` | assinatura |
+| **Token expirado** | `The token expired at '09/24/2026 18:53:43'` | **expiração** |
+
+Os ataques de assinatura morrem na primeira validação e nunca chegam a olhar o
+tempo. Este passou a assinatura (o token é autêntico) e morreu na validação de
+tempo — e a mensagem nomeia o instante exato da expiração. É a diferença entre
+"não sei quem emitiu isso" e "sei quem emitiu, mas já venceu".
+
+**O papel do `ClockSkew = TimeSpan.Zero`**
+
+Por padrão, o .NET aceita um token até 5 minutos **depois** do `exp`, para
+tolerar relógios dessincronizados entre servidores distintos. Com um único
+servidor, essa tolerância só serviria para tornar a expiração imprecisa: um
+token de 30 minutos valeria, na prática, 35. Com `ClockSkew = TimeSpan.Zero`, o
+token expirou às 18:53:43 e foi rejeitado poucos segundos depois — a janela de
+validade é exatamente a que a decisão #31 define, sem folga.
+
+Sem essa linha, este ataque teria um resultado ambíguo: um token vencido há
+menos de 5 minutos ainda passaria, e a evidência não provaria que a expiração é
+respeitada ao segundo.
+
+**A dívida que este ataque expõe**
+
+A expiração limita o dano de um token roubado a, no máximo, 30 minutos — mas não
+o elimina. Durante esses 30 minutos, o token vale, e **não há como revogá-lo**:
+um JWT sem estado é validado só pela assinatura, sem consulta a nenhuma lista de
+tokens cancelados. A mitigação completa exige refresh tokens curtos com uma
+lista de revogação no banco — registrado como evolução na decisão #31, fora do
+escopo desta semana.
+
+### Ataque 6 — Força bruta no login (vulnerabilidade em aberto)
+
+**O que o atacante tenta**
+
+Adivinhar a senha por tentativa e erro. Com uma lista de senhas comuns, ou de
+senhas vazadas de outros serviços, o atacante manda milhares de logins contra um
+email conhecido até uma acertar. O único obstáculo natural seria o servidor
+parar de aceitar tentativas depois de algumas falhas.
+
+**Diferente dos outros cinco ataques**
+
+Os anteriores provaram defesas que **existem**. Este prova uma defesa que
+**falta**. É registrado como vulnerabilidade em aberto, não como ataque
+frustrado — e é deliberado registrá-lo assim, porque reconhecer o furo com
+honestidade vale mais do que fingir que não existe.
+
+**A requisição**
+
+Vinte tentativas de login em sequência, cada uma com uma senha errada diferente:
+
+```bash
+for /L %i in (1,1,20) do @curl -s -o nul -w "tentativa %i -> %{http_code}\n" -X POST http://localhost:5041/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"joao@teste.com\",\"senha\":\"errada%i\"}"
+```
+
+**A resposta**
+
+```
+tentativa 1 -> 401
+tentativa 2 -> 401
+tentativa 3 -> 401
+...
+tentativa 19 -> 401
+tentativa 20 -> 401
+```
+
+Vinte tentativas, vinte 401. **Nenhum 429 (Too Many Requests)**, nenhum bloqueio,
+nenhum atraso progressivo. O servidor processou todas as tentativas com o mesmo
+custo e a mesma disposição da primeira.
+
+**O que impediu — nada, e é esse o ponto**
+
+Não há rate limiting, bloqueio de conta após N falhas, nem backoff. Um atacante
+pode manter esse laço rodando indefinidamente. A única barreira real hoje é a
+força do algoritmo de hash: o PBKDF2 com 100.000 iterações (decisão #29) torna
+cada verificação cara o suficiente para desacelerar um ataque — mas isso protege
+o hash no banco em caso de vazamento, **não** o endpoint de login contra
+tentativas online. As duas coisas são defesas diferentes para ameaças
+diferentes, e a segunda está ausente.
+
+**A dívida, e por que é aceitável por ora**
+
+Rate limiting no login é a mitigação que falta, e está registrado como pendência
+(decisão #31 menciona a ausência; esta evidência a prova). Não foi implementado
+nesta semana por escopo — a issue pede que os ataques sejam *demonstrados*, e a
+força bruta é o único cuja demonstração é justamente mostrar que a defesa não
+existe ainda.
+
+O que reduz o risco imediato, sem eliminá-lo:
+
+- **PBKDF2 caro** (decisão #29): cada tentativa custa ~100.000 iterações de
+  hash, então um ataque online é lento — na casa de dezenas de tentativas por
+  segundo, não milhares. Não impede, mas encarece.
+- **401 genérico** (decisão #32): o atacante não sabe se errou o email ou a
+  senha, então não consegue nem confirmar que a conta existe antes de tentar.
+
+**O caminho da correção**, para quando entrar em escopo:
+
+1. Rate limiting por IP no endpoint de login (o ASP.NET Core tem
+   `AddRateLimiter` nativo desde o .NET 7), respondendo 429 após N tentativas
+   numa janela de tempo.
+2. Bloqueio temporário da conta após um número de falhas consecutivas,
+   independente de IP — para conter ataque distribuído de várias origens.
+3. Idealmente, um segundo fator para contas de papel Admin.
+
+O item 1 sozinho já elimina a força bruta ingênua demonstrada acima, e é de
+baixo custo. É a próxima peça de segurança a construir.
+
+### Testes de integração — as 9 células 401/403 da tabela
+
+A tabela de autorização foi provada por requisição manual (acima). Esta seção
+automatiza as **9 células que negam acesso** — as 6 "sem token" (401) e as 3 do
+Operador em escrita (403) — com `WebApplicationFactory`, que sobe a API inteira
+em memória e faz requisições HTTP reais contra ela.
+
+**Por que não precisa de banco**
+
+As 9 células negadas morrem no pipeline de middleware — autenticação (401) ou
+autorização (403) — **antes** de a action do controller rodar, e portanto antes
+de qualquer acesso ao `DbContext`. Isso permite testá-las sem SQL Server: a
+factory não configura banco de teste, não faz seed, não faz cleanup. As células
+que retornam 200/201/404 (caminho feliz) não estão aqui porque essas *chegam* ao
+banco — automatizá-las exigiria a infraestrutura de banco de teste registrada
+como pendência na decisão #23.
+
+**A factory**
+
+```csharp
+public class ApiEmMemoriaFactory : WebApplicationFactory<Program>
+{
+    public const string Chave = "chave-de-teste-com-no-minimo-32-caracteres!!";
+    public const string Emissor = "painel-mobilidade";
+    public const string Audiencia = "painel-mobilidade";
+
+    public ApiEmMemoriaFactory()
+    {
+        Environment.SetEnvironmentVariable("Jwt__Chave", Chave);
+        Environment.SetEnvironmentVariable("Jwt__Emissor", Emissor);
+        Environment.SetEnvironmentVariable("Jwt__Audiencia", Audiencia);
+    }
+
+    public static string TokenDeOperador()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Chave"] = Chave,
+                ["Jwt:Emissor"] = Emissor,
+                ["Jwt:Audiencia"] = Audiencia,
+            })
+            .Build();
+
+        var usuario = Usuario.Registrar(
+            Email.Criar("operador@teste.com"), "senha-de-teste-123",
+            Papel.Operador, new HasherDeSenhaPbkdf2());
+
+        return new GeradorDeTokenJwt(config).Gerar(usuario);
+    }
+}
+```
+
+A factory define a chave JWT por variável de ambiente, o mesmo mecanismo de
+produção (decisão #30) — sem ela a API subiria sem chave e quebraria. O token de
+Operador é gerado pelo `GeradorDeTokenJwt` **real**, com a mesma chave, então o
+teste exercita o gerador de produção, não um token falso.
+
+**Os testes — dois `[Theory]`, 9 casos**
+
+```csharp
+[Theory]
+[InlineData("GET", "/api/Incidentes")]
+[InlineData("GET", "/api/Incidentes/2")]
+[InlineData("GET", "/api/Incidentes/bairro/1?inicio=2026-09-01T00:00:00")]
+[InlineData("POST", "/api/Incidentes")]
+[InlineData("DELETE", "/api/Incidentes/999")]
+[InlineData("POST", "/api/Usuarios")]
+public async Task SemToken_Retorna401(string metodo, string rota) { ... }
+
+[Theory]
+[InlineData("POST", "/api/Incidentes")]
+[InlineData("DELETE", "/api/Incidentes/999")]
+[InlineData("POST", "/api/Usuarios")]
+public async Task OperadorEmEscrita_Retorna403(string metodo, string rota) { ... }
+```
+
+Cada caso monta a requisição HTTP, anexa o token quando aplicável, e afirma o
+status esperado (`HttpStatusCode.Unauthorized` ou `Forbidden`).
+
+**Comando e resultado**
+
+```bash
+dotnet test --filter AutorizacaoIntegracaoTests
+```
+
+```
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+      Hosting environment: Development
+...
+      Application is shutting down...
+
+Resumo do teste: total: 9; falhou: 0; bem-sucedido: 9; ignorado: 0; duração: 6,4s
+```
+
+As linhas `Application started` / `shutting down` mostram a API real subindo em
+memória e descendo ao fim — não há mock do pipeline, é o `Program.cs` de
+produção rodando com a chave de teste. Nenhum erro de banco apareceu, o que
+confirma que as 9 células negadas nunca chegam ao `DbContext`.
+
+**O que estes testes cobrem, e o que ainda não**
+
+Cobrem: que sem token nenhuma rota protegida responde, e que o papel Operador é
+barrado em toda escrita. É a garantia de que uma regressão futura — alguém
+removendo um `[Authorize]`, ou trocando a `FallbackPolicy` — quebraria o build,
+em vez de abrir um furo silencioso.
+
+Não cobrem: as células de caminho feliz (200/201/404), que dependem de banco. A
+tabela manual acima as prova; automatizá-las é a evolução registrada na
+decisão #23.
+
+**Dois ataques da Parte 4 também automatizados**
+
+Além das 9 células de autorização, dois ataques de token entram aqui, porque
+também são rejeitados no middleware sem tocar no banco:
+
+- `TokenAssinadoComOutraChave_Retorna401`: gera um token de Admin assinado com
+  uma chave diferente da que a API conhece. A assinatura não bate → 401. É o
+  Ataque 4 (token forjado), agora repetível.
+- `TokenExpirado_Retorna401`: gera um token com a chave correta mas `exp` 5
+  minutos no passado. `ValidateLifetime` com `ClockSkew = TimeSpan.Zero` barra
+  → 401. É o Ataque 5, sem depender de encurtar a expiração à mão.
+
+Total: **11 testes, 0 falhas**. A prova manual desses ataques (curl + jwt.io)
+continua na seção de ataques; estes testes a tornam automática.
+
+## Semana 7: Git e cadência — rebase sobre o main atualizado
+
+### O que se quer provar
+
+Que a branch `semana-07` está baseada no `main` atual (o merge do PR #35, da
+Semana 6), e não numa versão defasada dele. Antes de abrir o PR para revisão, a
+branch precisa estar em cima do último `main` para que o diff mostre só o
+trabalho desta semana, sem conflitos acumulados.
+
+### Comandos
+
+```bash
+git fetch origin
+git rebase origin/main
+```
+
+### Saída do `git fetch origin`
+
+Vazia — nenhuma referência nova baixada. O `main` remoto não mudou desde que a
+branch `semana-07` foi criada.
+
+### Saída do `git rebase origin/main`
+
+```
+Current branch semana-07 is up to date.
+```
+
+Não houve commit para reaplicar. A branch foi criada a partir do `main` já
+atualizado (o merge da Semana 6), e nada entrou no `main` desde então. A saída
+confirma o alinhamento — é o resultado correto, não um comando que falhou. Como
+o histórico não foi reescrito, **não** houve `push --force`: a branch remota já
+estava idêntica à local.
+
+### A prova do alinhamento
+
+`main` remoto:
+
+```
+c4d64b2 (origin/main, origin/HEAD, main) Merge pull request #35 from renatodota/semana-06
+d6e6c0f (origin/semana-06, semana-06) da nome a intencao de cada command
+6540040 restringe o endpoint de diagnostico ao ambiente de desenvolvimento
+```
+
+`semana-07` (HEAD):
+
+```
+84699b5 (HEAD -> semana-07, origin/semana-07) test: helper e testes de token forjado e expirado na integracao
+0ae2b77 test: automatiza ataques de token forjado e expirado na integracao
+49911f0 docs: trunca assinatura de token nas evidencias de ataque
+d07e38a test: integracao das 9 celulas 401/403 com WebApplicationFactory
+ea37a6a docs: seis ataques da Parte 4 com requisicao e resposta reais
+ebfd8fc docs: documenta decisão de validação de ID e evidências do TDD
+```
+
+O commit `c4d64b2` do `main` é ancestral direto da `semana-07` — o `rebase`
+"up to date" garante isso. Os commits acima são exclusivamente o trabalho da
+Semana 7 (hash de senha, JWT, autorização, ataques, testes de integração), sem
+nenhum commit do `main` intercalado.
+
+### Por quê
+
+- **Rebase antes de abrir o PR, não merge:** o rebase mantém o histórico linear
+  — os commits da Semana 7 ficam em sequência em cima do `main`, sem um commit
+  de merge cruzando as duas linhas. O diff do PR mostra só o que esta semana
+  acrescenta.
+- **"Up to date" é sucesso, não falha:** diferente da Semana 5, onde o `main`
+  tinha avançado e o rebase de fato moveu a base (e exigiu `--force-with-lease`),
+  aqui o `main` não mudou. O comando correto rodou; simplesmente não havia o que
+  mover.
+- **Sem `--force` desta vez:** só se reescreve o remoto quando o rebase reescreve
+  o histórico local. Como nada foi reaplicado, a branch local e a remota
+  continuaram no mesmo commit, e um `push` normal (ou nenhum) basta.

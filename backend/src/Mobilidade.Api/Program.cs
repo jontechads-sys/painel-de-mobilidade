@@ -1,3 +1,7 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using Microsoft.AspNetCore.Authorization;
 using Mobilidade.Application.Importacao;
 using Mobilidade.Application.Repositorio;
 using Mobilidade.Infrastructure.Importacao;
@@ -11,6 +15,10 @@ using Mobilidade.Application.Eventos.Manipuladores;
 using Mobilidade.Domain.Eventos;
 using Mobilidade.Api.Filtros;
 using Mobilidade.Infrastructure.Consultas;
+using Mobilidade.Domain.Interfaces;
+using Mobilidade.Infrastructure.Seguranca;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,9 +42,41 @@ builder.Services.AddScoped<EncerrarIncidente>();
 builder.Services.AddScoped<RegistrarAtendimento>();
 builder.Services.AddScoped<IDespachadorDeEventos, Despachador>();
 builder.Services.AddScoped<IManipuladorDeEvento<IncidenteAberto>, RegistrarAuditoriaAoAbrirIncidenteGrave>();
+builder.Services.AddScoped<IHasherDeSenha, HasherDeSenhaPbkdf2>();
+builder.Services.AddScoped<IUsuarioRepository, RepositorioUsuariosEfCore>();
+builder.Services.AddScoped<IGeradorDeToken, GeradorDeTokenJwt>();
 
 builder.Services.AddDbContext<IncidentesDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    options.MapInboundClaims = false;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Chave"]!)),
+
+        ValidateIssuer = true,
+        ValidIssuer = builder.Configuration["Jwt:Emissor"],
+
+        ValidateAudience = true,
+        ValidAudience = builder.Configuration["Jwt:Audiencia"],
+
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.Zero,
+
+        RoleClaimType = "role"
+    };
+});
+
+
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -71,6 +111,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -88,7 +130,7 @@ app.MapGet("/health", async () =>
         app.Logger.LogError(ex, "Falha ao tentar se conectar no banco de dados");
         return Results.StatusCode(503);
     }
-});
+}).AllowAnonymous();
 
 app.MapPost("/api/incidentes/importar", async (
     IIncidenteImportador importador,
@@ -107,3 +149,5 @@ app.MapPost("/api/incidentes/importar", async (
 .WithName("ImportarIncidentesCsv");
 
 app.Run();
+
+public partial class Program { }

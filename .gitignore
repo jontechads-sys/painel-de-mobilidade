@@ -28,3 +28,7 @@ TestesConfig.cs
 *.swp
 .DS_Store
 Thumbs.db
+
+## Logs locais
+log-api.txt
+*.log

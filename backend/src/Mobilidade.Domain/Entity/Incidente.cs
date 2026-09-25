@@ -65,6 +65,11 @@ public sealed class Incidente
     }
     public void RegistrarIncidenteAberto()
     {
+        if (Id == 0) 
+        {
+            throw new DomainException("O incidente precisa ter um ID válido antes de gerar o evento.");
+        }
+
         var incidenteAberto = new IncidenteAberto(Id, Severidade, Periodo.Inicio);
         _eventos.Add(incidenteAberto);
     }
