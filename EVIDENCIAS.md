@@ -3304,3 +3304,76 @@ também são rejeitados no middleware sem tocar no banco:
 
 Total: **11 testes, 0 falhas**. A prova manual desses ataques (curl + jwt.io)
 continua na seção de ataques; estes testes a tornam automática.
+
+## Semana 7: Git e cadência — rebase sobre o main atualizado
+
+### O que se quer provar
+
+Que a branch `semana-07` está baseada no `main` atual (o merge do PR #35, da
+Semana 6), e não numa versão defasada dele. Antes de abrir o PR para revisão, a
+branch precisa estar em cima do último `main` para que o diff mostre só o
+trabalho desta semana, sem conflitos acumulados.
+
+### Comandos
+
+```bash
+git fetch origin
+git rebase origin/main
+```
+
+### Saída do `git fetch origin`
+
+Vazia — nenhuma referência nova baixada. O `main` remoto não mudou desde que a
+branch `semana-07` foi criada.
+
+### Saída do `git rebase origin/main`
+
+```
+Current branch semana-07 is up to date.
+```
+
+Não houve commit para reaplicar. A branch foi criada a partir do `main` já
+atualizado (o merge da Semana 6), e nada entrou no `main` desde então. A saída
+confirma o alinhamento — é o resultado correto, não um comando que falhou. Como
+o histórico não foi reescrito, **não** houve `push --force`: a branch remota já
+estava idêntica à local.
+
+### A prova do alinhamento
+
+`main` remoto:
+
+```
+c4d64b2 (origin/main, origin/HEAD, main) Merge pull request #35 from renatodota/semana-06
+d6e6c0f (origin/semana-06, semana-06) da nome a intencao de cada command
+6540040 restringe o endpoint de diagnostico ao ambiente de desenvolvimento
+```
+
+`semana-07` (HEAD):
+
+```
+84699b5 (HEAD -> semana-07, origin/semana-07) test: helper e testes de token forjado e expirado na integracao
+0ae2b77 test: automatiza ataques de token forjado e expirado na integracao
+49911f0 docs: trunca assinatura de token nas evidencias de ataque
+d07e38a test: integracao das 9 celulas 401/403 com WebApplicationFactory
+ea37a6a docs: seis ataques da Parte 4 com requisicao e resposta reais
+ebfd8fc docs: documenta decisão de validação de ID e evidências do TDD
+```
+
+O commit `c4d64b2` do `main` é ancestral direto da `semana-07` — o `rebase`
+"up to date" garante isso. Os commits acima são exclusivamente o trabalho da
+Semana 7 (hash de senha, JWT, autorização, ataques, testes de integração), sem
+nenhum commit do `main` intercalado.
+
+### Por quê
+
+- **Rebase antes de abrir o PR, não merge:** o rebase mantém o histórico linear
+  — os commits da Semana 7 ficam em sequência em cima do `main`, sem um commit
+  de merge cruzando as duas linhas. O diff do PR mostra só o que esta semana
+  acrescenta.
+- **"Up to date" é sucesso, não falha:** diferente da Semana 5, onde o `main`
+  tinha avançado e o rebase de fato moveu a base (e exigiu `--force-with-lease`),
+  aqui o `main` não mudou. O comando correto rodou; simplesmente não havia o que
+  mover.
+- **Sem `--force` desta vez:** só se reescreve o remoto quando o rebase reescreve
+  o histórico local. Como nada foi reaplicado, a branch local e a remota
+  continuaram no mesmo commit, e um `push` normal (ou nenhum) basta.
