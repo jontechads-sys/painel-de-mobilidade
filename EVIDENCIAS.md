@@ -2700,7 +2700,7 @@ A mesma requisição, ao mesmo endpoint, com o token **original** do Operador �
 sem adulteração, assinatura legítima:
 
 ```bash
-curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer eyJ...role Operador...NhPS30ya<truncada>"
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer  eyJ...role Operador...NhPS30ya<truncada>"
 ```
 
 ```
@@ -3290,14 +3290,17 @@ Não cobrem: as células de caminho feliz (200/201/404), que dependem de banco. 
 tabela manual acima as prova; automatizá-las é a evolução registrada na
 decisão #23.
 
-### Sem senha exposta 
+**Dois ataques da Parte 4 também automatizados**
 
-**Evidencias:**
+Além das 9 células de autorização, dois ataques de token entram aqui, porque
+também são rejeitados no middleware sem tocar no banco:
 
-comando:
-``` findstr /i "Jhon a1b2c3 NhPS30yaPAtQDXTr5K" EVIDENCIAS.md ```
+- `TokenAssinadoComOutraChave_Retorna401`: gera um token de Admin assinado com
+  uma chave diferente da que a API conhece. A assinatura não bate → 401. É o
+  Ataque 4 (token forjado), agora repetível.
+- `TokenExpirado_Retorna401`: gera um token com a chave correta mas `exp` 5
+  minutos no passado. `ValidateLifetime` com `ClockSkew = TimeSpan.Zero` barra
+  → 401. É o Ataque 5, sem depender de encurtar a expiração à mão.
 
-**Saída:**
-```
-
-```
+Total: **11 testes, 0 falhas**. A prova manual desses ataques (curl + jwt.io)
+continua na seção de ataques; estes testes a tornam automática.
