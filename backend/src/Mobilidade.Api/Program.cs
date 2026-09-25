@@ -149,3 +149,5 @@ app.MapPost("/api/incidentes/importar", async (
 .WithName("ImportarIncidentesCsv");
 
 app.Run();
+
+public partial class Program { }

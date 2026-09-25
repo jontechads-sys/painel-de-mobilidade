@@ -3177,3 +3177,115 @@ O que reduz o risco imediato, sem eliminá-lo:
 
 O item 1 sozinho já elimina a força bruta ingênua demonstrada acima, e é de
 baixo custo. É a próxima peça de segurança a construir.
+
+### Testes de integração — as 9 células 401/403 da tabela
+
+A tabela de autorização foi provada por requisição manual (acima). Esta seção
+automatiza as **9 células que negam acesso** — as 6 "sem token" (401) e as 3 do
+Operador em escrita (403) — com `WebApplicationFactory`, que sobe a API inteira
+em memória e faz requisições HTTP reais contra ela.
+
+**Por que não precisa de banco**
+
+As 9 células negadas morrem no pipeline de middleware — autenticação (401) ou
+autorização (403) — **antes** de a action do controller rodar, e portanto antes
+de qualquer acesso ao `DbContext`. Isso permite testá-las sem SQL Server: a
+factory não configura banco de teste, não faz seed, não faz cleanup. As células
+que retornam 200/201/404 (caminho feliz) não estão aqui porque essas *chegam* ao
+banco — automatizá-las exigiria a infraestrutura de banco de teste registrada
+como pendência na decisão #23.
+
+**A factory**
+
+```csharp
+public class ApiEmMemoriaFactory : WebApplicationFactory<Program>
+{
+    public const string Chave = "chave-de-teste-com-no-minimo-32-caracteres!!";
+    public const string Emissor = "painel-mobilidade";
+    public const string Audiencia = "painel-mobilidade";
+
+    public ApiEmMemoriaFactory()
+    {
+        Environment.SetEnvironmentVariable("Jwt__Chave", Chave);
+        Environment.SetEnvironmentVariable("Jwt__Emissor", Emissor);
+        Environment.SetEnvironmentVariable("Jwt__Audiencia", Audiencia);
+    }
+
+    public static string TokenDeOperador()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Chave"] = Chave,
+                ["Jwt:Emissor"] = Emissor,
+                ["Jwt:Audiencia"] = Audiencia,
+            })
+            .Build();
+
+        var usuario = Usuario.Registrar(
+            Email.Criar("operador@teste.com"), "senha-de-teste-123",
+            Papel.Operador, new HasherDeSenhaPbkdf2());
+
+        return new GeradorDeTokenJwt(config).Gerar(usuario);
+    }
+}
+```
+
+A factory define a chave JWT por variável de ambiente, o mesmo mecanismo de
+produção (decisão #30) — sem ela a API subiria sem chave e quebraria. O token de
+Operador é gerado pelo `GeradorDeTokenJwt` **real**, com a mesma chave, então o
+teste exercita o gerador de produção, não um token falso.
+
+**Os testes — dois `[Theory]`, 9 casos**
+
+```csharp
+[Theory]
+[InlineData("GET", "/api/Incidentes")]
+[InlineData("GET", "/api/Incidentes/2")]
+[InlineData("GET", "/api/Incidentes/bairro/1?inicio=2026-09-01T00:00:00")]
+[InlineData("POST", "/api/Incidentes")]
+[InlineData("DELETE", "/api/Incidentes/999")]
+[InlineData("POST", "/api/Usuarios")]
+public async Task SemToken_Retorna401(string metodo, string rota) { ... }
+
+[Theory]
+[InlineData("POST", "/api/Incidentes")]
+[InlineData("DELETE", "/api/Incidentes/999")]
+[InlineData("POST", "/api/Usuarios")]
+public async Task OperadorEmEscrita_Retorna403(string metodo, string rota) { ... }
+```
+
+Cada caso monta a requisição HTTP, anexa o token quando aplicável, e afirma o
+status esperado (`HttpStatusCode.Unauthorized` ou `Forbidden`).
+
+**Comando e resultado**
+
+```bash
+dotnet test --filter AutorizacaoIntegracaoTests
+```
+
+```
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+      Hosting environment: Development
+...
+      Application is shutting down...
+
+Resumo do teste: total: 9; falhou: 0; bem-sucedido: 9; ignorado: 0; duração: 6,4s
+```
+
+As linhas `Application started` / `shutting down` mostram a API real subindo em
+memória e descendo ao fim — não há mock do pipeline, é o `Program.cs` de
+produção rodando com a chave de teste. Nenhum erro de banco apareceu, o que
+confirma que as 9 células negadas nunca chegam ao `DbContext`.
+
+**O que estes testes cobrem, e o que ainda não**
+
+Cobrem: que sem token nenhuma rota protegida responde, e que o papel Operador é
+barrado em toda escrita. É a garantia de que uma regressão futura — alguém
+removendo um `[Authorize]`, ou trocando a `FallbackPolicy` — quebraria o build,
+em vez de abrir um furo silencioso.
+
+Não cobrem: as células de caminho feliz (200/201/404), que dependem de banco. A
+tabela manual acima as prova; automatizá-las é a evolução registrada na
+decisão #23.
