@@ -2700,7 +2700,7 @@ A mesma requisição, ao mesmo endpoint, com o token **original** do Operador �
 sem adulteração, assinatura legítima:
 
 ```bash
-curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer eyJ...role Operador...NhPS30yaPAtQDXTr5K_eana-9TyUOQbPovuadTvgST4"
+curl -i -X DELETE http://localhost:5041/api/Incidentes/999 -H "Authorization: Bearer eyJ...role Operador...NhPS30ya<truncada>"
 ```
 
 ```
@@ -3289,3 +3289,15 @@ em vez de abrir um furo silencioso.
 Não cobrem: as células de caminho feliz (200/201/404), que dependem de banco. A
 tabela manual acima as prova; automatizá-las é a evolução registrada na
 decisão #23.
+
+### Sem senha exposta 
+
+**Evidencias:**
+
+comando:
+``` findstr /i "Jhon a1b2c3 NhPS30yaPAtQDXTr5K" EVIDENCIAS.md ```
+
+**Saída:**
+```
+
+```
